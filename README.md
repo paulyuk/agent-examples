@@ -1,29 +1,32 @@
-# Azure OpenAI MCP Agent
+# Azure OpenAI MCP Agent (.NET)
 
-A TypeScript implementation of an agent loop using Azure OpenAI SDK and the Model Context Protocol (MCP) to provide specialized Azure Functions development assistance.
-
-## Architecture
-
-The project consists of three main components:
-
-1. **Agent Loop**: Orchestrates conversations using Azure OpenAI with MCP tool integration
-2. **MCP Server**: Exposes an Azure Functions chat tool powered by Azure OpenAI
-3. **CLI Client**: Interactive command-line interface for chatting with the agent
-
-```
-Client ←→ Agent Loop (Azure OpenAI) ←→ MCP Server (Azure Functions Tool)
-                                              ↓
-                                       Azure OpenAI Service
-```
+A sophisticated C#/.NET implementation of an Azure OpenAI MCP (Model Context Protocol) Agent that provides intelligent assistance for Azure Functions development using enterprise-grade patterns.
 
 ## Features
 
-- 🤖 **Azure OpenAI Integration**: Powered by Azure OpenAI for natural language understanding
-- 🔧 **MCP Tool Support**: Model Context Protocol for extensible tool integration
-- ⚡ **Azure Functions Expertise**: Specialized knowledge for Azure Functions development
-- 🛡️ **Security Best Practices**: Managed Identity support for production environments
-- 📝 **Interactive CLI**: User-friendly command-line interface with async responses
-- 🔄 **Conversation Management**: Maintains context and conversation history
+- 🤖 **Azure OpenAI Integration** - Powered by Azure.AI.OpenAI SDK v2.1.0
+- 🔧 **MCP Tool Support** - Extensible tool system for specialized capabilities  
+- 🛡️ **Enterprise Security** - Managed Identity support for production environments
+- 📝 **Interactive CLI** - Rich console interface with command support
+- 🏗️ **Dependency Injection** - Modern .NET hosting and DI patterns
+- 📊 **Structured Logging** - Comprehensive logging with Microsoft.Extensions.Logging
+- ⚙️ **Configuration Management** - Environment-specific settings with validation
+
+## Architecture
+
+```
+AzureOpenAIMcpAgent/
+├── Models/
+│   └── Types.cs              # Data models and configurations
+├── Services/
+│   ├── AgentLoop.cs          # Core agent orchestration
+│   ├── McpServer.cs          # MCP tool implementations
+│   └── CliClient.cs          # Interactive CLI interface
+├── Program.cs                # Main entry point with DI setup
+├── appsettings.json          # Production configuration
+├── appsettings.Development.json # Development configuration
+└── AzureOpenAIMcpAgent.csproj # Project dependencies
+```
 
 ## Prerequisites
 
