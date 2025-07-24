@@ -24,6 +24,9 @@ Client ←→ Agent Loop (OpenAI SDK) ←→ MCP Server (Azure Functions Chat To
 - Load and register the MCP tool
 - Handle conversation flow with tool calling
 - Manage context and conversation history
+- Streaming messages and event responses vs waiting for whole completion
+- Persist conversation history to Cosmosdb
+- Introduce session id's
 - Implement async/await patterns
 
 ### MCP Server
