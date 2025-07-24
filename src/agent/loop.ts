@@ -213,34 +213,67 @@ export class AgentLoop {
         requestParams.tool_choice = 'auto';
       }
 
-      const response = await this.openaiClient.chat.completions.create(requestParams);
-
-      const choice = response.choices[0];
-      if (!choice) {
-        throw new Error('No response from Azure OpenAI');
-      }
-
-      // Handle tool calls if present
-      const toolCalls = choice.message?.tool_calls;
-      if (toolCalls && toolCalls.length > 0) {
-        const toolResponse = await this.handleToolCalls(toolCalls);
-        return toolResponse;
-      }
-
-      // Regular response - simulate streaming by yielding chunks
-      const assistantMessage = choice.message?.content || 'No response generated';
-      const words = assistantMessage.split(' ');
+      // Use real streaming from Azure OpenAI
+      const streamParams = {
+        ...requestParams,
+        stream: true as const,
+      };
       
-      for (const word of words) {
-        yield word + ' ';
-        // Small delay to simulate streaming
-        await new Promise(resolve => setTimeout(resolve, 50));
+      const stream = await this.openaiClient.chat.completions.create(streamParams);
+      
+      let assistantMessage = '';
+      const toolCallsMap = new Map<number, any>();
+      
+      // Process the real-time stream from Azure OpenAI
+      // TypeScript assertion needed for streaming response
+      for await (const chunk of stream as any) {
+        const delta = chunk.choices[0]?.delta;
+        
+        if (!delta) continue;
+        
+        // Handle content streaming
+        if (delta.content) {
+          assistantMessage += delta.content;
+          yield delta.content; // Yield real-time content as it comes from Azure OpenAI
+        }
+        
+        // Handle tool calls in streaming (collect deltas)
+        if (delta.tool_calls) {
+          for (const toolCallDelta of delta.tool_calls) {
+            const index = toolCallDelta.index!;
+            if (!toolCallsMap.has(index)) {
+              toolCallsMap.set(index, {
+                id: toolCallDelta.id || '',
+                type: toolCallDelta.type || 'function',
+                function: {
+                  name: '',
+                  arguments: ''
+                }
+              });
+            }
+            
+            const existingCall = toolCallsMap.get(index)!;
+            if (toolCallDelta.function?.name) {
+              existingCall.function.name += toolCallDelta.function.name;
+            }
+            if (toolCallDelta.function?.arguments) {
+              existingCall.function.arguments += toolCallDelta.function.arguments;
+            }
+          }
+        }
+      }
+      
+      // Handle tool calls if present after streaming completes
+      if (toolCallsMap.size > 0) {
+        const completeToolCalls = Array.from(toolCallsMap.values());
+        const toolResponse = await this.handleToolCalls(completeToolCalls);
+        return toolResponse;
       }
       
       // Add assistant response to conversation history with session info
       const assistantChatMessage: ChatMessage = {
         role: 'assistant',
-        content: assistantMessage,
+        content: assistantMessage || 'No response generated',
         timestamp: new Date(),
         sessionId: this.sessionId,
       };
@@ -249,7 +282,7 @@ export class AgentLoop {
       await this.saveMessageToCosmos(assistantChatMessage);
 
       return {
-        message: assistantMessage,
+        message: assistantMessage || 'No response generated',
         isStreaming: true,
       };
     } catch (error) {
