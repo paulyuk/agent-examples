@@ -19,12 +19,30 @@ export interface MCPToolResponse {
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  timestamp?: Date;
+  sessionId?: string;
 }
 
 export interface AgentResponse {
   message: string;
   toolCalls?: MCPToolCall[];
   error?: string;
+  isStreaming?: boolean;
+}
+
+export interface ConversationSession {
+  id: string;
+  sessionId: string;
+  messages: ChatMessage[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CosmosConfig {
+  endpoint: string;
+  key: string;
+  databaseId: string;
+  containerId: string;
 }
 
 export interface AzureFunctionsChatToolParams {
@@ -41,5 +59,6 @@ export interface MCPServerConfig {
 export interface AgentLoopConfig {
   azureOpenAI: AzureOpenAIConfig;
   mcpServer: MCPServerConfig;
+  cosmos?: CosmosConfig;
   systemPrompt?: string;
 }

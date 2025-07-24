@@ -11,6 +11,7 @@ export class CLIClient {
   private agent: AgentLoop;
   private mcpServer: MCPServer;
   private rl: readline.Interface;
+  private streamingEnabled: boolean = true;
 
   constructor(config: AgentLoopConfig) {
     this.agent = new AgentLoop(config);
@@ -41,9 +42,13 @@ export class CLIClient {
    */
   async start(): Promise<void> {
     console.log('🚀 Azure OpenAI MCP Agent Started!');
+    console.log(`🆔 Session ID: ${this.agent.getSessionId()}`);
     console.log('💡 Ask me anything about Azure Functions development');
-    console.log('📝 Available commands: /help, /clear, /history, /tools, /exit');
+    console.log('📝 Available commands: /help, /clear, /history, /tools, /streaming, /exit');
     console.log('');
+
+    // Initialize session (load from Cosmos DB if available)
+    await this.agent.initializeSession();
 
     // Start the MCP server
     await this.mcpServer.start();
@@ -68,15 +73,40 @@ export class CLIClient {
       // Process user message through agent
       console.log('🤔 Thinking...');
       try {
-        const response = await this.agent.processMessage(trimmedInput);
-        
-        if (response.error) {
-          console.log(`❌ Error: ${response.error}`);
-        } else {
-          console.log(`🤖 ${response.message}`);
+        if (this.streamingEnabled) {
+          // Use streaming response
+          process.stdout.write('🤖 ');
+          const streamGenerator = this.agent.processMessageStream(trimmedInput);
           
-          if (response.toolCalls && response.toolCalls.length > 0) {
-            console.log(`🔧 Used tools: ${response.toolCalls.map(tc => tc.name).join(', ')}`);
+          let result = await streamGenerator.next();
+          while (!result.done) {
+            if (typeof result.value === 'string') {
+              process.stdout.write(result.value);
+            }
+            result = await streamGenerator.next();
+          }
+          
+          // Final response object
+          const finalResponse = result.value;
+          if (finalResponse.error) {
+            console.log(`\n❌ Error: ${finalResponse.error}`);
+          }
+          if (finalResponse.toolCalls && finalResponse.toolCalls.length > 0) {
+            console.log(`\n🔧 Used tools: ${finalResponse.toolCalls.map(tc => tc.name).join(', ')}`);
+          }
+          console.log(''); // New line after streaming
+        } else {
+          // Use regular non-streaming response
+          const response = await this.agent.processMessage(trimmedInput);
+          
+          if (response.error) {
+            console.log(`❌ Error: ${response.error}`);
+          } else {
+            console.log(`🤖 ${response.message}`);
+            
+            if (response.toolCalls && response.toolCalls.length > 0) {
+              console.log(`🔧 Used tools: ${response.toolCalls.map(tc => tc.name).join(', ')}`);
+            }
           }
         }
       } catch (error) {
@@ -116,6 +146,14 @@ export class CLIClient {
       case '/tools':
         this.showTools();
         break;
+
+      case '/streaming':
+        this.toggleStreaming();
+        break;
+
+      case '/session':
+        this.showSessionInfo();
+        break;
       
       case '/exit':
       case '/quit':
@@ -128,24 +166,24 @@ export class CLIClient {
     }
   }
 
-  /**
+    /**
    * Show help information
    */
   private showHelp(): void {
-    console.log('📚 Available Commands:');
-    console.log('  /help     - Show this help message');
-    console.log('  /clear    - Clear conversation history');
-    console.log('  /history  - Show conversation history');
-    console.log('  /tools    - Show registered tools');
-    console.log('  /exit     - Exit the application');
+    console.log('🆘 Available Commands:');
+    console.log('  /help      - Show this help message');
+    console.log('  /clear     - Clear conversation history');
+    console.log('  /history   - Show conversation history');
+    console.log('  /tools     - Show registered MCP tools');
+    console.log('  /streaming - Toggle streaming mode on/off');
+    console.log('  /session   - Show session information');
+    console.log('  /exit      - Exit the application');
     console.log('');
-    console.log('💡 Example questions:');
-    console.log('  - How do I create a timer trigger in Azure Functions?');
-    console.log('  - What are the best practices for Azure Functions performance?');
-    console.log('  - How do I implement Durable Functions?');
-    console.log('  - Show me how to use Azure Functions with Cosmos DB');
-    console.log('  - What are the different hosting plans for Azure Functions?');
-    console.log('  - How do I secure my Azure Functions?');
+    console.log('💡 Tips:');
+    console.log('  • Ask about Azure Functions development');
+    console.log('  • Request code examples and best practices');
+    console.log('  • Use streaming mode for real-time responses');
+    console.log('  • Your conversation history is persisted across sessions');
   }
 
   /**
@@ -181,6 +219,27 @@ export class CLIClient {
     tools.forEach((tool, index) => {
       console.log(`  ${index + 1}. ${tool} - Azure Functions chat tool`);
     });
+  }
+
+  /**
+   * Toggle streaming mode
+   */
+  private toggleStreaming(): void {
+    this.streamingEnabled = !this.streamingEnabled;
+    console.log(`🔄 Streaming mode ${this.streamingEnabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Show session information
+   */
+  private showSessionInfo(): void {
+    const sessionId = this.agent.getSessionId();
+    const history = this.agent.getConversationHistory();
+    console.log('📋 Session Information:');
+    console.log(`  🆔 Session ID: ${sessionId}`);
+    console.log(`  💬 Messages: ${history.length}`);
+    console.log(`  🔄 Streaming: ${this.streamingEnabled ? 'enabled' : 'disabled'}`);
+    console.log(`  🔧 Tools: ${this.agent.getRegisteredTools().length}`);
   }
 
   /**

@@ -1,23 +1,33 @@
 import OpenAI from 'openai';
+import { v4 as uuidv4 } from 'uuid';
 import {
   ChatMessage,
   AgentResponse,
   MCPToolCall,
   AgentLoopConfig,
 } from '../types/index.js';
+import { CosmosService } from '../services/cosmos.js';
 
 /**
  * Agent Loop that orchestrates conversations using OpenAI SDK with Azure OpenAI
- * Handles tool calling, conversation history, and response generation
+ * Handles tool calling, conversation history, streaming, and persistence
  */
 export class AgentLoop {
   private openaiClient: OpenAI;
   private config: AgentLoopConfig;
   private conversationHistory: ChatMessage[] = [];
   private mcpTools: Map<string, any> = new Map();
+  private sessionId: string;
+  private cosmosService?: CosmosService;
 
-  constructor(config: AgentLoopConfig) {
+  constructor(config: AgentLoopConfig, sessionId?: string) {
     this.config = config;
+    this.sessionId = sessionId || uuidv4();
+    
+    // Initialize Cosmos DB service if config is provided
+    if (config.cosmos) {
+      this.cosmosService = new CosmosService(config.cosmos);
+    }
     
     // Initialize OpenAI client for Azure OpenAI
     this.openaiClient = new OpenAI({
@@ -29,12 +39,48 @@ export class AgentLoop {
       },
     });
 
-    // Set up system prompt if provided
-    if (config.systemPrompt) {
-      this.conversationHistory.push({
+    console.log(`🆔 Session ID: ${this.sessionId}`);
+  }
+
+  /**
+   * Initialize session - load from Cosmos DB if available, otherwise start fresh
+   */
+  async initializeSession(): Promise<void> {
+    if (this.cosmosService) {
+      const existingSession = await this.cosmosService.loadSession(this.sessionId);
+      if (existingSession) {
+        this.conversationHistory = existingSession.messages;
+        console.log(`📂 Loaded ${this.conversationHistory.length} messages from session ${this.sessionId}`);
+        return;
+      }
+    }
+
+    // Set up system prompt if provided and no existing session
+    if (this.config.systemPrompt) {
+      const systemMessage: ChatMessage = {
         role: 'system',
-        content: config.systemPrompt,
-      });
+        content: this.config.systemPrompt,
+        timestamp: new Date(),
+        sessionId: this.sessionId,
+      };
+      this.conversationHistory.push(systemMessage);
+      await this.saveMessageToCosmos(systemMessage);
+    }
+  }
+
+  /**
+   * Get the current session ID
+   */
+  getSessionId(): string {
+    return this.sessionId;
+  }
+
+  /**
+   * Save message to Cosmos DB if service is available
+   */
+  private async saveMessageToCosmos(message: ChatMessage): Promise<void> {
+    if (this.cosmosService) {
+      await this.cosmosService.addMessageToSession(this.sessionId, message);
     }
   }
 
@@ -52,11 +98,16 @@ export class AgentLoop {
    */
   async processMessage(userMessage: string): Promise<AgentResponse> {
     try {
-      // Add user message to conversation history
-      this.conversationHistory.push({
+      // Add user message to conversation history with session info
+      const userChatMessage: ChatMessage = {
         role: 'user',
         content: userMessage,
-      });
+        timestamp: new Date(),
+        sessionId: this.sessionId,
+      };
+      
+      this.conversationHistory.push(userChatMessage);
+      await this.saveMessageToCosmos(userChatMessage);
 
       // Prepare tools for OpenAI function calling
       const tools = Array.from(this.mcpTools.keys()).map(toolName => ({
@@ -97,21 +148,116 @@ export class AgentLoop {
       // Regular response without tool calls
       const assistantMessage = choice.message?.content || 'No response generated';
       
-      // Add assistant response to conversation history
-      this.conversationHistory.push({
+      // Add assistant response to conversation history with session info
+      const assistantChatMessage: ChatMessage = {
         role: 'assistant',
         content: assistantMessage,
-      });
+        timestamp: new Date(),
+        sessionId: this.sessionId,
+      };
+      
+      this.conversationHistory.push(assistantChatMessage);
+      await this.saveMessageToCosmos(assistantChatMessage);
 
       return {
         message: assistantMessage,
+        isStreaming: false,
+      };
+    } catch (error) {
+      console.error('❌ Error processing message:', error);
+      return {
+        message: 'Sorry, I encountered an error while processing your message.',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        isStreaming: false,
+      };
+    }
+  }
+
+  /**
+   * Process a user message with streaming support
+   * Returns an async generator for real-time response streaming
+   */
+  async* processMessageStream(userMessage: string): AsyncGenerator<string, AgentResponse, unknown> {
+    try {
+      // Add user message to conversation history with session info
+      const userChatMessage: ChatMessage = {
+        role: 'user',
+        content: userMessage,
+        timestamp: new Date(),
+        sessionId: this.sessionId,
+      };
+      
+      this.conversationHistory.push(userChatMessage);
+      await this.saveMessageToCosmos(userChatMessage);
+
+      // Prepare tools for OpenAI function calling
+      const tools = Array.from(this.mcpTools.keys()).map(toolName => ({
+        type: 'function' as const,
+        function: this.getToolDescription(toolName),
+      }));
+
+      // Call Azure OpenAI with conversation history and available tools
+      const requestParams: any = {
+        model: this.config.azureOpenAI.deploymentName,
+        messages: this.conversationHistory.map(msg => ({
+          role: msg.role as 'system' | 'user' | 'assistant',
+          content: msg.content,
+        })),
+        max_tokens: 2000,
+        temperature: 0.3,
+        top_p: 0.9,
       };
 
-    } catch (error) {
-      console.error('Error processing message:', error);
+      if (tools.length > 0) {
+        requestParams.tools = tools;
+        requestParams.tool_choice = 'auto';
+      }
+
+      const response = await this.openaiClient.chat.completions.create(requestParams);
+
+      const choice = response.choices[0];
+      if (!choice) {
+        throw new Error('No response from Azure OpenAI');
+      }
+
+      // Handle tool calls if present
+      const toolCalls = choice.message?.tool_calls;
+      if (toolCalls && toolCalls.length > 0) {
+        const toolResponse = await this.handleToolCalls(toolCalls);
+        return toolResponse;
+      }
+
+      // Regular response - simulate streaming by yielding chunks
+      const assistantMessage = choice.message?.content || 'No response generated';
+      const words = assistantMessage.split(' ');
+      
+      for (const word of words) {
+        yield word + ' ';
+        // Small delay to simulate streaming
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      // Add assistant response to conversation history with session info
+      const assistantChatMessage: ChatMessage = {
+        role: 'assistant',
+        content: assistantMessage,
+        timestamp: new Date(),
+        sessionId: this.sessionId,
+      };
+      
+      this.conversationHistory.push(assistantChatMessage);
+      await this.saveMessageToCosmos(assistantChatMessage);
+
       return {
-        message: 'Sorry, I encountered an error processing your request.',
+        message: assistantMessage,
+        isStreaming: true,
+      };
+    } catch (error) {
+      console.error('❌ Error processing streaming message:', error);
+      return {
+        message: 'Sorry, I encountered an error while processing your message.',
         error: error instanceof Error ? error.message : 'Unknown error',
+        isStreaming: true,
       };
     }
   }
@@ -151,10 +297,14 @@ export class AgentLoop {
     }
 
     // Add tool results to conversation and get final response
-    this.conversationHistory.push({
+    const toolMessage: ChatMessage = {
       role: 'assistant',
       content: `I'll use the ${mcpToolCalls.map(tc => tc.name).join(', ')} tool(s) to help you.`,
-    });
+      timestamp: new Date(),
+      sessionId: this.sessionId,
+    };
+    this.conversationHistory.push(toolMessage);
+    await this.saveMessageToCosmos(toolMessage);
 
     // Get final response from Azure OpenAI with tool results
     const finalResponse = await this.openaiClient.chat.completions.create({
@@ -176,10 +326,14 @@ export class AgentLoop {
     const finalMessage = finalResponse.choices[0]?.message?.content || 'No final response generated';
     
     // Add final response to conversation history
-    this.conversationHistory.push({
+    const finalChatMessage: ChatMessage = {
       role: 'assistant',
       content: finalMessage,
-    });
+      timestamp: new Date(),
+      sessionId: this.sessionId,
+    };
+    this.conversationHistory.push(finalChatMessage);
+    await this.saveMessageToCosmos(finalChatMessage);
 
     return {
       message: finalMessage,

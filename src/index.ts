@@ -29,6 +29,13 @@ async function main(): Promise<void> {
     }
 
     // Configure the agent
+    const cosmosConfig = process.env.COSMOS_ENDPOINT && process.env.COSMOS_KEY ? {
+      endpoint: process.env.COSMOS_ENDPOINT,
+      key: process.env.COSMOS_KEY,
+      databaseId: process.env.COSMOS_DATABASE_ID || 'agent-conversations',
+      containerId: process.env.COSMOS_CONTAINER_ID || 'sessions',
+    } : undefined;
+
     const config: AgentLoopConfig = {
       azureOpenAI: {
         endpoint: process.env.AZURE_OPENAI_ENDPOINT!,
@@ -40,6 +47,7 @@ async function main(): Promise<void> {
         name: 'azure-functions-mcp-server',
         version: '1.0.0',
       },
+      ...(cosmosConfig && { cosmos: cosmosConfig }),
       systemPrompt: `You are an Azure Functions expert assistant powered by Azure OpenAI. 
       You have access to specialized Azure Functions tools through the Model Context Protocol (MCP).
       
@@ -49,42 +57,32 @@ async function main(): Promise<void> {
       - Performance optimization and scaling
       - Security and monitoring with managed identity
       - Integration with other Azure services
-      - Deployment strategies and DevOps
+      - Troubleshooting and debugging
       
-      Use the available MCP tools when users ask specific questions about Azure Functions.
-      Always provide practical, actionable advice with code examples when relevant.
-      Focus on modern best practices, security, and performance optimization.`,
+      Always provide accurate, helpful, and practical guidance for Azure Functions development.`,
     };
 
-    // Create and start the CLI client
+    // Create and start the CLI client with streaming support
     const client = new CLIClient(config);
-
-    // Handle graceful shutdown
-    process.on('SIGINT', async () => {
-      console.log('\n🛑 Shutting down gracefully...');
-      await client.stop();
-      process.exit(0);
-    });
-
-    process.on('SIGTERM', async () => {
-      console.log('\n🛑 Shutting down gracefully...');
-      await client.stop();
-      process.exit(0);
-    });
-
-    // Start the client
     await client.start();
-
   } catch (error) {
-    console.error('💥 Failed to start Azure OpenAI MCP Agent:', error);
+    console.error('❌ Failed to start application:', error);
     process.exit(1);
   }
 }
 
-// Run the application
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch(error => {
-    console.error('💥 Unhandled error:', error);
-    process.exit(1);
-  });
-}
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n👋 Goodbye!');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n👋 Goodbye!');
+  process.exit(0);
+});
+
+main().catch(error => {
+  console.error('💥 Unhandled error:', error);
+  process.exit(1);
+});
