@@ -1,0 +1,91 @@
+{
+  "version": 2,
+  "dgSpecHash": "DHBNjtUIG3k=",
+  "success": false,
+  "projectFilePath": "/Users/paulyuk/src/scratch/agentloop/openaisdkagent/AzureOpenAIMcpAgent.csproj",
+  "expectedPackageFiles": [
+    "/Users/paulyuk/.nuget/packages/azure.ai.openai/2.1.0/azure.ai.openai.2.1.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/azure.core/1.44.1/azure.core.1.44.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/azure.identity/1.12.1/azure.identity.1.12.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.bcl.asyncinterfaces/6.0.0/microsoft.bcl.asyncinterfaces.6.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.configuration/9.0.0/microsoft.extensions.configuration.9.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.configuration.abstractions/9.0.0/microsoft.extensions.configuration.abstractions.9.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.configuration.binder/8.0.2/microsoft.extensions.configuration.binder.8.0.2.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.configuration.commandline/9.0.0/microsoft.extensions.configuration.commandline.9.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.configuration.environmentvariables/9.0.0/microsoft.extensions.configuration.environmentvariables.9.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.configuration.fileextensions/8.0.1/microsoft.extensions.configuration.fileextensions.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.configuration.json/8.0.1/microsoft.extensions.configuration.json.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.configuration.usersecrets/8.0.1/microsoft.extensions.configuration.usersecrets.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.dependencyinjection/8.0.1/microsoft.extensions.dependencyinjection.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.dependencyinjection.abstractions/8.0.2/microsoft.extensions.dependencyinjection.abstractions.8.0.2.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.diagnostics/8.0.1/microsoft.extensions.diagnostics.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.diagnostics.abstractions/8.0.1/microsoft.extensions.diagnostics.abstractions.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.diagnostics.healthchecks/8.0.10/microsoft.extensions.diagnostics.healthchecks.8.0.10.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.diagnostics.healthchecks.abstractions/8.0.10/microsoft.extensions.diagnostics.healthchecks.abstractions.8.0.10.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.fileproviders.abstractions/8.0.0/microsoft.extensions.fileproviders.abstractions.8.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.fileproviders.physical/8.0.0/microsoft.extensions.fileproviders.physical.8.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.filesystemglobbing/8.0.0/microsoft.extensions.filesystemglobbing.8.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.hosting/8.0.1/microsoft.extensions.hosting.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.hosting.abstractions/8.0.1/microsoft.extensions.hosting.abstractions.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.logging/8.0.1/microsoft.extensions.logging.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.logging.abstractions/8.0.2/microsoft.extensions.logging.abstractions.8.0.2.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.logging.configuration/8.0.1/microsoft.extensions.logging.configuration.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.logging.console/8.0.1/microsoft.extensions.logging.console.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.logging.debug/8.0.1/microsoft.extensions.logging.debug.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.logging.eventlog/8.0.1/microsoft.extensions.logging.eventlog.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.logging.eventsource/8.0.1/microsoft.extensions.logging.eventsource.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.options/8.0.2/microsoft.extensions.options.8.0.2.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.options.configurationextensions/8.0.0/microsoft.extensions.options.configurationextensions.8.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.extensions.primitives/9.0.0/microsoft.extensions.primitives.9.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.identity.client/4.65.0/microsoft.identity.client.4.65.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.identity.client.extensions.msal/4.65.0/microsoft.identity.client.extensions.msal.4.65.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/microsoft.identitymodel.abstractions/6.35.0/microsoft.identitymodel.abstractions.6.35.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/openai/2.1.0/openai.2.1.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/system.clientmodel/1.2.1/system.clientmodel.1.2.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/system.diagnostics.diagnosticsource/6.0.1/system.diagnostics.diagnosticsource.6.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/system.diagnostics.eventlog/8.0.1/system.diagnostics.eventlog.8.0.1.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/system.memory/4.5.4/system.memory.4.5.4.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/system.memory.data/6.0.0/system.memory.data.6.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/system.numerics.vectors/4.5.0/system.numerics.vectors.4.5.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/system.runtime.compilerservices.unsafe/6.0.0/system.runtime.compilerservices.unsafe.6.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/system.security.cryptography.protecteddata/4.7.0/system.security.cryptography.protecteddata.4.7.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/system.text.encodings.web/6.0.0/system.text.encodings.web.6.0.0.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/system.text.json/6.0.10/system.text.json.6.0.10.nupkg.sha512",
+    "/Users/paulyuk/.nuget/packages/system.threading.tasks.extensions/4.5.4/system.threading.tasks.extensions.4.5.4.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1603",
+      "level": "Error",
+      "message": "Warning As Error: AzureOpenAIMcpAgent depends on Microsoft.Extensions.Configuration (>= 8.0.1) but Microsoft.Extensions.Configuration 8.0.1 was not found. Microsoft.Extensions.Configuration 9.0.0 was resolved instead.",
+      "projectPath": "/Users/paulyuk/src/scratch/agentloop/openaisdkagent/AzureOpenAIMcpAgent.csproj",
+      "filePath": "/Users/paulyuk/src/scratch/agentloop/openaisdkagent/AzureOpenAIMcpAgent.csproj",
+      "libraryId": "Microsoft.Extensions.Configuration",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1603",
+      "level": "Error",
+      "message": "Warning As Error: AzureOpenAIMcpAgent depends on Microsoft.Extensions.Configuration.CommandLine (>= 8.0.1) but Microsoft.Extensions.Configuration.CommandLine 8.0.1 was not found. Microsoft.Extensions.Configuration.CommandLine 9.0.0 was resolved instead.",
+      "projectPath": "/Users/paulyuk/src/scratch/agentloop/openaisdkagent/AzureOpenAIMcpAgent.csproj",
+      "filePath": "/Users/paulyuk/src/scratch/agentloop/openaisdkagent/AzureOpenAIMcpAgent.csproj",
+      "libraryId": "Microsoft.Extensions.Configuration.CommandLine",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1603",
+      "level": "Error",
+      "message": "Warning As Error: AzureOpenAIMcpAgent depends on Microsoft.Extensions.Configuration.EnvironmentVariables (>= 8.0.1) but Microsoft.Extensions.Configuration.EnvironmentVariables 8.0.1 was not found. Microsoft.Extensions.Configuration.EnvironmentVariables 9.0.0 was resolved instead.",
+      "projectPath": "/Users/paulyuk/src/scratch/agentloop/openaisdkagent/AzureOpenAIMcpAgent.csproj",
+      "filePath": "/Users/paulyuk/src/scratch/agentloop/openaisdkagent/AzureOpenAIMcpAgent.csproj",
+      "libraryId": "Microsoft.Extensions.Configuration.EnvironmentVariables",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    }
+  ]
+}
