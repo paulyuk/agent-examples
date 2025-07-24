@@ -1,31 +1,34 @@
-# Azure OpenAI MCP Agent (.NET)
+# Azure OpenAI MCP Agent (TypeScript)
 
-A sophisticated C#/.NET implementation of an Azure OpenAI MCP (Model Context Protocol) Agent that provides intelligent assistance for Azure Functions development using enterprise-grade patterns.
+A sophisticated TypeScript/Node.js implementation of an Azure OpenAI MCP (Model Context Protocol) Agent that provides intelligent assistance for Azure Functions development using modern TypeScript patterns.
 
 ## Features
 
-- 🤖 **Azure OpenAI Integration** - Powered by Azure.AI.OpenAI SDK v2.1.0
-- 🔧 **MCP Tool Support** - Extensible tool system for specialized capabilities  
-- 🛡️ **Enterprise Security** - Managed Identity support for production environments
+- 🤖 **Azure OpenAI Integration** - Powered by OpenAI SDK v4.67.3 with Azure support
+- 🔧 **MCP Tool Support** - Extensible tool system for specialized Azure Functions capabilities  
+- 🛡️ **Enterprise Security** - Azure Identity integration with managed identity support
 - 📝 **Interactive CLI** - Rich console interface with command support
-- 🏗️ **Dependency Injection** - Modern .NET hosting and DI patterns
-- 📊 **Structured Logging** - Comprehensive logging with Microsoft.Extensions.Logging
-- ⚙️ **Configuration Management** - Environment-specific settings with validation
+- 🏗️ **TypeScript** - Full type safety with strict TypeScript configuration
+- 📊 **Modern ESM** - ES modules with async/await patterns
+- ⚙️ **Environment Configuration** - Secure credential management with dotenv
 
 ## Architecture
 
 ```
-AzureOpenAIMcpAgent/
-├── Models/
-│   └── Types.cs              # Data models and configurations
-├── Services/
-│   ├── AgentLoop.cs          # Core agent orchestration
-│   ├── McpServer.cs          # MCP tool implementations
-│   └── CliClient.cs          # Interactive CLI interface
-├── Program.cs                # Main entry point with DI setup
-├── appsettings.json          # Production configuration
-├── appsettings.Development.json # Development configuration
-└── AzureOpenAIMcpAgent.csproj # Project dependencies
+azure-openai-mcp-agent/
+├── src/
+│   ├── index.ts              # Main entry point with configuration
+│   ├── agent/
+│   │   └── loop.ts           # Core agent orchestration
+│   ├── server/
+│   │   └── mcp-server.ts     # MCP tool implementations
+│   ├── client/
+│   │   └── cli.ts            # Interactive CLI interface
+│   └── types/
+│       └── index.ts          # TypeScript type definitions
+├── package.json              # Node.js dependencies and scripts
+├── tsconfig.json            # TypeScript configuration
+└── .env                     # Environment variables (create from .env.example)
 ```
 
 ## Prerequisites
@@ -44,6 +47,7 @@ AzureOpenAIMcpAgent/
 
 2. **Configure environment variables**:
    ```bash
+   # Copy the example environment file and edit with your credentials
    cp .env.example .env
    # Edit .env with your Azure OpenAI credentials
    ```
@@ -58,15 +62,22 @@ AzureOpenAIMcpAgent/
 
 ## Usage
 
-### Development Mode
+### Development Mode (with hot reload)
 ```bash
 npm run dev
+# or for watch mode
+npm run dev:watch
 ```
 
 ### Build and Run
 ```bash
 npm run build
 npm start
+```
+
+### Run Demo
+```bash
+npm run demo
 ```
 
 ### Interactive Commands
@@ -95,7 +106,7 @@ src/
 ├── server/
 │   └── mcp-server.ts     # MCP server with Azure Functions tool
 ├── client/
-│   └── cli.ts            # Interactive client
+│   └── cli.ts            # Interactive CLI client
 ├── types/
 │   └── index.ts          # TypeScript type definitions
 └── index.ts              # Entry point
@@ -116,10 +127,11 @@ The MCP server exposes an `azure-functions-chat` tool that provides:
 
 ## Security
 
-- **Authentication**: Uses Azure Managed Identity in production, API keys for development
-- **Credentials**: Never hardcoded, uses Azure Key Vault patterns
-- **Error Handling**: Comprehensive error handling and logging
-- **Type Safety**: Full TypeScript implementation with strict mode
+- **Authentication**: Uses Azure Identity SDK with support for Managed Identity in production, API keys for development
+- **Credentials**: Environment-based configuration, never hardcoded values
+- **Error Handling**: Comprehensive error handling with detailed logging
+- **Type Safety**: Full TypeScript implementation with strict type checking enabled
+- **Modern Security**: ES modules with secure coding patterns
 
 ## Development
 
@@ -140,10 +152,11 @@ npm run build
 
 ## Troubleshooting
 
-1. **Authentication Issues**: Ensure your Azure OpenAI credentials are correct
-2. **Connection Problems**: Check your Azure OpenAI endpoint URL
+1. **Authentication Issues**: Ensure your Azure OpenAI credentials are correct in your `.env` file
+2. **Connection Problems**: Check your Azure OpenAI endpoint URL and deployment name
 3. **Module Errors**: Run `npm install` to ensure all dependencies are installed
 4. **TypeScript Errors**: Run `npm run build` to check for compilation issues
+5. **Permission Issues**: Ensure your Azure OpenAI resource has the correct permissions configured
 
 ## Contributing
 
