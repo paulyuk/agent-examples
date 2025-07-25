@@ -11,6 +11,12 @@
     "dev:watch": "tsx watch src/index.ts",
     "lint": "eslint src/**/*.ts",
     "test": "jest",
+    "test:debug": "node test/test-debug.js",
+    "test:mcp": "node test/test-mcp.js", 
+    "test:openai": "node test/test-openai.js",
+    "test:tools": "node test/test-tools.js",
+    "test:quick": "node test/quick-test.mjs",
+    "test:mcp-only": "node test/test-mcp-only.mjs",
     "demo": "node demo.js"
   },
   "keywords": [

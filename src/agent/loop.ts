@@ -305,7 +305,14 @@ export class AgentLoop {
     for (const toolCall of toolCalls) {
       const { function: func } = toolCall;
       const toolName = func.name;
-      const toolArgs = JSON.parse(func.arguments || '{}');
+      
+      let toolArgs;
+      try {
+        toolArgs = JSON.parse(func.arguments || '{}');
+      } catch (parseError) {
+        console.error(`🔧 Error parsing tool arguments:`, parseError);
+        toolArgs = {};
+      }
 
       mcpToolCalls.push({
         name: toolName,
@@ -317,8 +324,10 @@ export class AgentLoop {
       if (toolHandler) {
         try {
           const result = await toolHandler(toolArgs);
+          
           // Extract text content from the result
           const resultText = result.content?.[0]?.text || JSON.stringify(result);
+          
           toolResults += `Tool ${toolName} result: ${resultText}\n`;
         } catch (error) {
           console.error(`Error executing tool ${toolName}:`, error);
