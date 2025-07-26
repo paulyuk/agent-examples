@@ -81,7 +81,9 @@ azure-openai-mcp-agent/
    COSMOS_CONTAINER_ID=sessions
    ```
 
-   > 📋 **Note**: For detailed setup instructions on identity-based Cosmos DB authentication, see [COSMOS_IDENTITY.md](./COSMOS_IDENTITY.md)
+   > 📋 **Recommended**: For a complete, automated Cosmos DB setup (including account creation, RBAC, and testing), use the [cosmosdb-identity-rbac-setup GitHub prompt](.github/prompts/cosmosdb-identity-rbac-setup.md). This guide walks you through the entire process with reusable scripts and environment variables.
+   >
+   > For legacy/manual details, see [COSMOS_IDENTITY.md](./COSMOS_IDENTITY.md)
 
 ## Usage
 
