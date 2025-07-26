@@ -1,9 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import express from "express";
-import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import fetch from "node-fetch";
+import crypto from "crypto";
 
 // Type for a sample in the gallery
 type GallerySample = {
@@ -121,75 +120,58 @@ server.registerTool(
 );
 
 
-// --- Streamable HTTP Transport with Express and session management ---
-const app = express();
-app.use(express.json());
-
-// Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
-
-app.post('/mcp', async (req, res) => {
-  console.log('[MCP] Incoming POST /mcp headers:', req.headers);
-  console.log('[MCP] Incoming POST /mcp body:', req.body);
-  const sessionId = req.headers['mcp-session-id'] as string | undefined;
-  let transport: StreamableHTTPServerTransport;
-
-  if (sessionId && transports[sessionId]) {
-    transport = transports[sessionId];
-  } else if (!sessionId) {
-    // New initialization request
-    let newSessionId: string | undefined;
-    // Generate session ID and set header synchronously before any async/response work
-    newSessionId = randomUUID();
-    res.setHeader('mcp-session-id', newSessionId);
-    console.log('[MCP] Generated new sessionId and set header:', newSessionId);
-    transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => newSessionId!,
-      onsessioninitialized: (sid) => {
-        // Already set below, but keep for robustness
-        transports[sid] = transport;
-      },
-      enableDnsRebindingProtection: true,
-      allowedHosts: ['127.0.0.1', 'localhost', 'localhost:8080', '127.0.0.1:8080'],
-    });
-    // Store the transport immediately so it is available for the next request
-    transports[newSessionId] = transport;
-    transport.onclose = () => {
-      if (transport.sessionId) {
-        delete transports[transport.sessionId];
-      }
-    };
-    await server.connect(transport);
-    // Log outgoing headers after handleRequest
-    res.on('finish', () => {
-      console.log('[MCP] Response headers for session init:', res.getHeaders());
-    });
-  } else {
-    res.status(400).json({
-      jsonrpc: '2.0',
-      error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
-      id: null,
-    });
-    return;
-  }
-
-  await transport.handleRequest(req, res, req.body);
-});
-
-const handleSessionRequest = async (req: express.Request, res: express.Response) => {
-  const sessionId = req.headers['mcp-session-id'] as string | undefined;
-  if (!sessionId || !transports[sessionId]) {
-    res.status(400).send('Invalid or missing session ID');
-    return;
-  }
-  const transport = transports[sessionId];
-  await transport.handleRequest(req, res);
-};
-
-app.get('/mcp', handleSessionRequest);
-app.delete('/mcp', handleSessionRequest);
+// --- Direct HTTP Server with StreamableHTTPServerTransport ---
+import { createServer } from 'http';
 
 const PORT = 8080;
-app.listen(PORT, () => {
-  console.log(`MCP server with Awesome AZD Gallery is running (streamable HTTP) on http://localhost:${PORT}/mcp ...`);
+
+async function startServer() {
+  console.log('[MCP] Creating StreamableHTTPServerTransport...');
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => crypto.randomUUID(),
+    enableDnsRebindingProtection: true,
+    allowedHosts: ['127.0.0.1', 'localhost', 'localhost:8080', '127.0.0.1:8080'],
+  });
+  
+  console.log('[MCP] Connecting server to transport...');
+  await server.connect(transport);
+  console.log('[MCP] Server connected successfully');
+  
+  // Create HTTP server that delegates to the transport
+  const httpServer = createServer(async (req, res) => {
+    console.log('[MCP] Incoming', req.method, req.url, 'headers:', req.headers);
+    
+    // Only handle requests to /mcp path
+    if (req.url !== '/mcp') {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not found. Use /mcp endpoint.' }));
+      return;
+    }
+    
+    console.log('[MCP] Delegating to transport.handleRequest...');
+    try {
+      await transport.handleRequest(req, res);
+      console.log('[MCP] transport.handleRequest completed successfully');
+    } catch (error) {
+      console.error('[MCP] Error in transport.handleRequest:', error);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: 'Internal server error during request handling' },
+          id: null,
+        }));
+      }
+    }
+  });
+  
+  httpServer.listen(PORT, () => {
+    console.log(`MCP server with Awesome AZD Gallery is running (streamable HTTP) on http://localhost:${PORT}/mcp ...`);
+  });
+}
+
+// Start the server
+startServer().catch(error => {
+  console.error('[MCP] Failed to start server:', error);
+  process.exit(1);
 });

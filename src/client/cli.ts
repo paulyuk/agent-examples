@@ -71,19 +71,14 @@ export class CLIClient {
     // Register the Azure Functions chat tool to call the remote MCP server using streamable HTTP transport
     this.agent.registerMCPTool('azure-functions-chat', async (args: any) => {
       try {
-        // Ensure MCP session is initialized
+        // Initialize session only once on first call
         if (!this.mcpSessionId) {
-          // Start a new session by POSTing with no session header
-          const initRes = await fetch(this.mcpUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', method: 'initialize', params: {}, id: 1 })
-          });
-          const sid = initRes.headers.get('mcp-session-id');
-          if (!sid) throw new Error('Failed to initialize MCP session');
-          this.mcpSessionId = sid;
+          await this.initializeMCPSession();
         }
 
+        // Debug: Log what OpenAI actually sends
+        console.log('[CLI] Raw args from OpenAI:', JSON.stringify(args, null, 2));
+        
         // Only allow params defined in the inputSchema for find-azfunc-samples
         const allowedKeys = ['query', 'question', 'context', 'author', 'azureService'];
         const filteredArgs: Record<string, any> = {};
@@ -92,24 +87,49 @@ export class CLIClient {
             if (key in args && args[key] !== undefined) filteredArgs[key] = args[key];
           }
         }
+        
+        console.log('[CLI] Filtered args to send:', JSON.stringify(filteredArgs, null, 2));
 
-        // Call the remote MCP tool (find-azfunc-samples)
+        // Call the remote MCP tool (find-azfunc-samples) using existing session
         const mcpReq = {
           jsonrpc: '2.0',
-          method: 'find-azfunc-samples',
-          params: filteredArgs,
+          method: 'tools/call',
+          params: {
+            name: 'find-azfunc-samples',
+            arguments: filteredArgs
+          },
           id: Date.now()
         };
+        console.log('[CLI] MCP request:', JSON.stringify(mcpReq, null, 2));
+        console.log('[CLI] Using session ID:', this.mcpSessionId);
+        
+        // Build headers - only include session ID if we have one
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream'
+        };
+        if (this.mcpSessionId) {
+          headers['mcp-session-id'] = this.mcpSessionId;
+        }
+        
         const res = await fetch(this.mcpUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'mcp-session-id': this.mcpSessionId
-          },
+          headers,
           body: JSON.stringify(mcpReq)
         });
-        if (!res.ok) throw new Error(`MCP server error: ${res.status}`);
-        const data = await res.json() as any;
+        console.log('[CLI] MCP response status:', res.status);
+        
+        // Get response text for debugging 406 errors
+        const responseText = await res.text();
+        console.log('[CLI] MCP response text:', responseText);
+        
+        if (!res.ok) {
+          console.log('[CLI] Full response headers:', [...res.headers.entries()]);
+          throw new Error(`MCP server error: ${res.status} - ${responseText}`);
+        }
+        
+        const data = JSON.parse(responseText);
+        console.log('[CLI] MCP response data:', JSON.stringify(data, null, 2));
         if (data.error) {
           return {
             content: [{ type: 'text', text: `MCP error: ${data.error.message}` }]
@@ -131,6 +151,81 @@ export class CLIClient {
         };
       }
     });
+  }
+
+  /**
+   * Initialize MCP session (only called once)
+   */
+  private async initializeMCPSession(): Promise<void> {
+    console.log(`[CLI] Initializing MCP session...`);
+    
+    try {
+      // Start a new session by POSTing with no session header
+      // ✅ Match Inspector's exact initialization pattern
+      const initRes = await fetch(this.mcpUrl, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream'
+        },
+        body: JSON.stringify({
+          "jsonrpc": "2.0",
+          "id": 0,
+          "method": "initialize",
+          "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {
+              "sampling": {},
+              "elicitation": {},
+              "roots": {
+                "listChanged": true
+              }
+            },
+            "clientInfo": {
+              "name": "azure-functions-cli",
+              "version": "1.0.0"
+            }
+          }
+        })
+      });
+      
+      console.log('[CLI] Init response status:', initRes.status);
+      
+      if (!initRes.ok) {
+        const errorText = await initRes.text();
+        console.log('[CLI] Init failed with response:', errorText);
+        
+        // If server already initialized, that's actually OK - just don't have a session ID
+        if (errorText.includes('Server already initialized')) {
+          console.log('[CLI] Server already initialized, will use no session ID');
+          this.mcpSessionId = null; // Use no session ID for subsequent calls
+          return;
+        }
+        
+        throw new Error(`Failed to initialize MCP session: ${initRes.status} - ${errorText}`);
+      }
+      
+      // Get session ID from response headers
+      const sid = initRes.headers.get('mcp-session-id');
+      console.log('[CLI] Received session ID:', sid);
+      
+      // Parse the streamable HTTP response (should be JSON, not SSE)
+      const responseText = await initRes.text();
+      console.log('[CLI] Init response body:', responseText);
+      
+      // For Streamable HTTP MCP, response should be JSON not SSE
+      const initData = JSON.parse(responseText);
+      if (initData.error) {
+        throw new Error(`MCP initialization error: ${initData.error.message}`);
+      }
+      
+      this.mcpSessionId = sid;
+      console.log('[CLI] Successfully initialized MCP session:', this.mcpSessionId);
+      
+    } catch (error) {
+      console.error('[CLI] Failed to initialize MCP session:', error);
+      throw error;
+    }
   }
 
   /**

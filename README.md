@@ -48,6 +48,26 @@ azure-openai-mcp-agent/
    npm install
    ```
 
+## 🚨 CRITICAL: Proper Workflow Commands
+
+### For GitHub Copilot AI Assistant:
+- **✅ ALWAYS use**: `npm run dev` to start the CLI client
+- **❌ NEVER start the MCP server** - only humans can do this
+- **❌ NEVER use**: `node dist/src/client/cli.js` directly
+- **❌ NEVER use**: `isBackground: true` for CLI commands
+
+### For Human Developers:
+- **Start MCP Server**: `npm run mcp-server` (runs on http://localhost:8080/mcp)
+- **Start CLI Client**: `npm run dev` (connects to MCP server)
+- **Test MCP Inspector**: Use browser at http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=...
+
+### Workflow Sequence:
+1. **Human**: `npm run mcp-server` (terminal 1)
+2. **Copilot/Human**: `npm run dev` (terminal 2)
+3. **Optional**: MCP Inspector for debugging
+
+> **⚠️ WARNING**: The MCP server uses a direct HTTP server architecture with `createServer` and `StreamableHTTPServerTransport`. This exact pattern makes MCP Inspector work. DO NOT change this architecture or switch to Express middleware as it breaks the streaming protocol.
+
 2. **Configure environment variables**:
    ```bash
    # Copy the example environment file and edit with your credentials
