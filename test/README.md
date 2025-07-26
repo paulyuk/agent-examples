@@ -13,6 +13,7 @@ This directory contains various test files for debugging and validating differen
 ### ES Module Test Files (.mjs)
 - **quick-test.mjs** - Quick test with mock tool for basic agent functionality
 - **test-mcp-only.mjs** - Focused test for MCP server functionality only
+- **test-cosmos-identity.mjs** - Test Cosmos DB with Azure AD identity authentication
 
 ## Running Tests
 
@@ -28,6 +29,7 @@ npm run test:tools    # Run tool calling test
 # ES Module tests  
 npm run test:quick    # Run quick test with mock tools
 npm run test:mcp-only # Run MCP-only focused test
+npm run test:cosmos-identity # Test Cosmos DB identity authentication
 ```
 
 Or run them directly:
@@ -42,6 +44,7 @@ node test/test-tools.js
 # ES Module tests
 node test/quick-test.mjs
 node test/test-mcp-only.mjs
+node test/test-cosmos-identity.mjs
 ```
 
 ## Prerequisites

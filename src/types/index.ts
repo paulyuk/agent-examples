@@ -40,9 +40,11 @@ export interface ConversationSession {
 
 export interface CosmosConfig {
   endpoint: string;
-  key: string;
+  key?: string; // Optional - use identity-based auth if not provided
   databaseId: string;
   containerId: string;
+  // Optional identity configuration
+  useIdentity?: boolean; // Defaults to true if key is not provided
 }
 
 export interface AzureFunctionsChatToolParams {

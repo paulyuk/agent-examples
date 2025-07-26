@@ -1,18 +1,42 @@
 import { CosmosClient, Container } from '@azure/cosmos';
+import { DefaultAzureCredential } from '@azure/identity';
 import { ConversationSession, ChatMessage, CosmosConfig } from '../types/index.js';
 
 /**
- * Simple Cosmos DB service for persisting conversation history
+ * Cosmos DB service for persisting conversation history
+ * Supports both identity-based (recommended) and key-based authentication
+ * 
+ * Identity-based authentication uses DefaultAzureCredential which automatically
+ * tries multiple authentication methods:
+ * 1. Environment variables (service principal)
+ * 2. Managed Identity (when running on Azure)
+ * 3. Azure CLI (local development)
+ * 4. Interactive browser (fallback)
+ * 
+ * @see COSMOS_IDENTITY.md for setup instructions
  */
 export class CosmosService {
   private client: CosmosClient;
   private container: Container;
 
   constructor(config: CosmosConfig) {
-    this.client = new CosmosClient({
-      endpoint: config.endpoint,
-      key: config.key,
-    });
+    // Use identity-based authentication if no key is provided or useIdentity is explicitly true
+    const useIdentity = config.useIdentity !== false && !config.key;
+    
+    if (useIdentity) {
+      console.log('🔐 Initializing Cosmos DB with Azure Identity (keyless authentication)');
+      const credential = new DefaultAzureCredential();
+      this.client = new CosmosClient({
+        endpoint: config.endpoint,
+        aadCredentials: credential,
+      });
+    } else {
+      console.log('🔑 Initializing Cosmos DB with key-based authentication');
+      this.client = new CosmosClient({
+        endpoint: config.endpoint,
+        key: config.key!,
+      });
+    }
 
     this.container = this.client
       .database(config.databaseId)

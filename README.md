@@ -64,12 +64,24 @@ azure-openai-mcp-agent/
    ```
 
 4. **Optional Cosmos DB configuration** (for conversation persistence):
+
+   **Identity-based authentication (recommended for production):**
+   ```env
+   COSMOS_ENDPOINT=https://your-cosmos-account.documents.azure.com:443/
+   COSMOS_DATABASE_ID=agent-conversations
+   COSMOS_CONTAINER_ID=sessions
+   COSMOS_USE_IDENTITY=true
+   ```
+
+   **Key-based authentication (legacy, still supported):**
    ```env
    COSMOS_ENDPOINT=https://your-cosmos-account.documents.azure.com:443/
    COSMOS_KEY=your-cosmos-key
    COSMOS_DATABASE_ID=agent-conversations
    COSMOS_CONTAINER_ID=sessions
    ```
+
+   > 📋 **Note**: For detailed setup instructions on identity-based Cosmos DB authentication, see [COSMOS_IDENTITY.md](./COSMOS_IDENTITY.md)
 
 ## Usage
 
@@ -160,6 +172,7 @@ The MCP server exposes an `azure-functions-chat` tool that provides:
 ## Security
 
 - **Authentication**: Uses Azure Identity SDK with support for Managed Identity in production, API keys for development
+- **Cosmos DB Identity**: Supports keyless authentication using Azure AD identities (recommended for production)
 - **Credentials**: Environment-based configuration, never hardcoded values
 - **Error Handling**: Comprehensive error handling with detailed logging
 - **Type Safety**: Full TypeScript implementation with strict type checking enabled

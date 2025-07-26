@@ -28,12 +28,13 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    // Configure the agent
-    const cosmosConfig = process.env.COSMOS_ENDPOINT && process.env.COSMOS_KEY ? {
+    // Configure Cosmos DB - support both identity and key-based authentication
+    const cosmosConfig = process.env.COSMOS_ENDPOINT ? {
       endpoint: process.env.COSMOS_ENDPOINT,
-      key: process.env.COSMOS_KEY,
+      ...(process.env.COSMOS_KEY && { key: process.env.COSMOS_KEY }),
       databaseId: process.env.COSMOS_DATABASE_ID || 'agent-conversations',
       containerId: process.env.COSMOS_CONTAINER_ID || 'sessions',
+      useIdentity: process.env.COSMOS_USE_IDENTITY === 'true' || !process.env.COSMOS_KEY,
     } : undefined;
 
     const config: AgentLoopConfig = {
