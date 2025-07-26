@@ -5,7 +5,7 @@ A sophisticated TypeScript/Node.js implementation of an Azure OpenAI MCP (Model 
 ## Features
 
 - 🤖 **Azure OpenAI Integration** - Powered by OpenAI SDK v4.67.3 with Azure support
-- 🔧 **MCP Tool Support** - Extensible tool system for specialized Azure Functions capabilities  
+- 🔧 **Dynamic MCP Tool Discovery** - Tools are discovered dynamically from MCP server (NO hardcoding)
 - 🛡️ **Enterprise Security** - Azure Identity integration with managed identity support
 - 📝 **Interactive CLI** - Rich console interface with command support
 - 🏗️ **TypeScript** - Full type safety with strict TypeScript configuration
@@ -14,6 +14,7 @@ A sophisticated TypeScript/Node.js implementation of an Azure OpenAI MCP (Model 
 - 🔄 **Streaming Support** - Real-time response streaming for better user experience
 - 💾 **Conversation Persistence** - Optional Cosmos DB integration for conversation history
 - 🆔 **Session Management** - Unique session IDs for conversation tracking
+- 🎯 **Proper MCP Protocol** - Full compliance with MCP protocol using tools/list and tools/call
 
 ## Architecture
 
@@ -47,26 +48,6 @@ azure-openai-mcp-agent/
    ```bash
    npm install
    ```
-
-## 🚨 CRITICAL: Proper Workflow Commands
-
-### For GitHub Copilot AI Assistant:
-- **✅ ALWAYS use**: `npm run dev` to start the CLI client
-- **❌ NEVER start the MCP server** - only humans can do this
-- **❌ NEVER use**: `node dist/src/client/cli.js` directly
-- **❌ NEVER use**: `isBackground: true` for CLI commands
-
-### For Human Developers:
-- **Start MCP Server**: `npm run mcp-server` (runs on http://localhost:8080/mcp)
-- **Start CLI Client**: `npm run dev` (connects to MCP server)
-- **Test MCP Inspector**: Use browser at http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=...
-
-### Workflow Sequence:
-1. **Human**: `npm run mcp-server` (terminal 1)
-2. **Copilot/Human**: `npm run dev` (terminal 2)
-3. **Optional**: MCP Inspector for debugging
-
-> **⚠️ WARNING**: The MCP server uses a direct HTTP server architecture with `createServer` and `StreamableHTTPServerTransport`. This exact pattern makes MCP Inspector work. DO NOT change this architecture or switch to Express middleware as it breaks the streaming protocol.
 
 2. **Configure environment variables**:
    ```bash
@@ -109,6 +90,10 @@ azure-openai-mcp-agent/
 
 ### Development Mode (with hot reload)
 ```bash
+# Terminal 1: Start MCP server
+npm run mcp-server
+
+# Terminal 2: Start CLI client
 npm run dev
 # or for watch mode
 npm run dev:watch
@@ -140,37 +125,76 @@ Once the CLI starts, you can use these commands:
 ### Example Questions
 
 - "How do I create a timer trigger in Azure Functions?"
+- "Show me a sample for timer trigger"
 - "What are the best practices for Azure Functions performance?"
 - "Show me how to implement Durable Functions"
 - "How do I use Azure Functions with Cosmos DB?"
 
-## Project Structure
+## Testing
 
-```
-src/
-├── agent/
-│   └── loop.ts           # Main agent loop implementation
-├── server/
-│   └── mcp-server.ts     # MCP server with Azure Functions tool
-├── client/
-│   └── cli.ts            # Interactive CLI client
-├── types/
-│   └── index.ts          # TypeScript type definitions
-└── index.ts              # Entry point
+### MCP Integration Tests
+Run protective tests to ensure dynamic tool discovery is working correctly:
+
+```bash
+# Quick regression check (30 seconds)
+npm run test:regression
+
+# Full integration test (2 minutes)
+npm run test:mcp-integration
 ```
 
-## Azure Functions Tool
+These tests verify:
+- ✅ No hardcoded tool names in switch statements
+- ✅ Proper MCP protocol calls (tools/list, tools/call)
+- ✅ Correct SSE Accept headers
+- ✅ Dynamic tool registration pattern
+- ✅ TypeScript compilation success
 
-The MCP server exposes an `azure-functions-chat` tool that provides:
+> ⚠️ **Important**: Run `npm run test:regression` before making any changes to ensure you don't break the dynamic discovery system!
 
-- Azure Functions runtime and trigger guidance
-- Binding configuration patterns
-- Performance optimization recommendations
-- Security best practices
-- Deployment strategies
-- Monitoring and diagnostics advice
-- Cost optimization tips
-- Integration patterns with other Azure services
+### Manual Testing
+```bash
+# Terminal 1: Start MCP server
+npm run mcp-server
+
+# Terminal 2: Test CLI discovery
+npm run dev
+```
+
+## MCP Tool: `find-azfunc-samples`
+
+The MCP server exposes a dynamic tool called **`find-azfunc-samples`** that provides intelligent access to the Awesome AZD Gallery.
+
+### What It Does
+- **Real-time Search**: Searches the live [Awesome AZD Gallery](https://azure.github.io/awesome-azd/) for Azure Functions samples
+- **Smart Filtering**: Filters by query terms, author, or specific Azure services
+- **Live Data**: Fetches fresh sample data from the official Microsoft gallery JSON endpoint
+- **Azure Functions Focus**: Pre-filtered to show only samples that include Azure Functions
+
+### How It Works
+1. **Dynamic Fetching**: Retrieves latest samples from `https://raw.githubusercontent.com/Azure/awesome-azd/main/website/static/templates.json`
+2. **Intelligent Filtering**: Applies user queries against sample titles, descriptions, authors, and Azure services
+3. **Structured Results**: Returns formatted sample information with titles, descriptions, GitHub links, and Azure service tags
+
+### Testing the Tool
+```bash
+# Terminal 1: Start MCP server
+npm run mcp-server
+
+# Terminal 2: Start CLI and try these queries
+npm run dev
+
+# Example queries:
+"Show me python azure functions samples"
+"Find samples by author Microsoft"
+"What Azure Functions samples use Cosmos DB?"
+"Show me timer trigger examples"
+```
+
+### Tool Parameters
+- `query` or `question`: Search terms for title/description matching
+- `author`: Filter by sample author name
+- `azureService`: Filter by specific Azure service (e.g., "cosmosdb", "sql", "storage")
 
 ## Key Features Implemented
 

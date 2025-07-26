@@ -12,6 +12,8 @@
     "dev:watch": "tsx watch src/index.ts",
     "lint": "eslint src/**/*.ts",
     "test": "jest",
+    "test:mcp-integration": "tsx test/mcp-integration.test.ts",
+    "test:regression": "node test/regression-check.mjs",
     "test:debug": "node test/test-debug.js",
     "test:mcp": "node test/test-mcp.js",
     "test:openai": "node test/test-openai.js",

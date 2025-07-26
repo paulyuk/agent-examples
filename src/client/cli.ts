@@ -61,96 +61,41 @@ export class CLIClient {
       prompt: '🤖 Azure Functions Assistant > ',
     });
 
-    this.setupMCPTools();
+    // Note: setupMCPTools is now async and will be called in start()
   }
 
   /**
    * Setup MCP tools integration with the agent
    */
-  private setupMCPTools(): void {
-    // Register the Azure Functions chat tool to call the remote MCP server using streamable HTTP transport
-    this.agent.registerMCPTool('azure-functions-chat', async (args: any) => {
-      try {
-        // Initialize session only once on first call
-        if (!this.mcpSessionId) {
-          await this.initializeMCPSession();
-        }
+  private async setupMCPTools(): Promise<void> {
+    // Tools will be registered dynamically after MCP server discovery
+    console.log("🔧 MCP tools will be registered dynamically after server discovery");
+    
+    // Initialize MCP session first
+    try {
+      console.log("🔧 Initializing MCP session...");
+      await this.initializeMCPSession();
+      console.log("✅ MCP session initialized successfully");
+    } catch (error) {
+      console.error("❌ Failed to initialize MCP session:", error);
+      console.log("⚠️  MCP tools will not be available");
+      return;
+    }
 
-        // Debug: Log what OpenAI actually sends
-        console.log('[CLI] Raw args from OpenAI:', JSON.stringify(args, null, 2));
-        
-        // Only allow params defined in the inputSchema for find-azfunc-samples
-        const allowedKeys = ['query', 'question', 'context', 'author', 'azureService'];
-        const filteredArgs: Record<string, any> = {};
-        if (args && typeof args === 'object') {
-          for (const key of allowedKeys) {
-            if (key in args && args[key] !== undefined) filteredArgs[key] = args[key];
-          }
-        }
-        
-        console.log('[CLI] Filtered args to send:', JSON.stringify(filteredArgs, null, 2));
-
-        // Call the remote MCP tool (find-azfunc-samples) using existing session
-        const mcpReq = {
-          jsonrpc: '2.0',
-          method: 'tools/call',
-          params: {
-            name: 'find-azfunc-samples',
-            arguments: filteredArgs
-          },
-          id: Date.now()
-        };
-        console.log('[CLI] MCP request:', JSON.stringify(mcpReq, null, 2));
-        console.log('[CLI] Using session ID:', this.mcpSessionId);
-        
-        // Build headers - only include session ID if we have one
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json, text/event-stream'
-        };
-        if (this.mcpSessionId) {
-          headers['mcp-session-id'] = this.mcpSessionId;
-        }
-        
-        const res = await fetch(this.mcpUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(mcpReq)
-        });
-        console.log('[CLI] MCP response status:', res.status);
-        
-        // Get response text for debugging 406 errors
-        const responseText = await res.text();
-        console.log('[CLI] MCP response text:', responseText);
-        
-        if (!res.ok) {
-          console.log('[CLI] Full response headers:', [...res.headers.entries()]);
-          throw new Error(`MCP server error: ${res.status} - ${responseText}`);
-        }
-        
-        const data = JSON.parse(responseText);
-        console.log('[CLI] MCP response data:', JSON.stringify(data, null, 2));
-        if (data.error) {
-          return {
-            content: [{ type: 'text', text: `MCP error: ${data.error.message}` }]
-          };
-        }
-        // The result is in data.result.content
-        return {
-          content: data.result && data.result.content ? data.result.content : [{ type: 'text', text: 'No content returned from MCP tool.' }]
-        };
-      } catch (error) {
-        console.error(`🔧 Tool handler error:`, error);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error processing your Azure Functions question: ${error instanceof Error ? error.message : 'Unknown error'}`
-            }
-          ]
-        };
-      }
-    });
+    // Initialize MCP tools by fetching their descriptions from the server
+    try {
+      console.log("🔧 Initializing MCP tools...");
+      await this.agent.initializeMCPTools(this.mcpSessionId!);
+      console.log("✅ MCP tools initialized successfully");
+      
+      // Register all discovered tools dynamically
+      console.log("🔧 Registering discovered MCP tools...");
+      this.agent.registerDiscoveredMCPTools(this.mcpSessionId!);
+      console.log("✅ MCP tools registered successfully");
+    } catch (error) {
+      console.error("❌ Failed to initialize MCP tools:", error);
+      console.log("⚠️  Continuing without MCP tools...");
+    }
   }
 
   /**
@@ -209,14 +154,27 @@ export class CLIClient {
       const sid = initRes.headers.get('mcp-session-id');
       console.log('[CLI] Received session ID:', sid);
       
-      // Parse the streamable HTTP response (should be JSON, not SSE)
+      // Parse the streamable HTTP response (SSE format)
       const responseText = await initRes.text();
       console.log('[CLI] Init response body:', responseText);
       
-      // For Streamable HTTP MCP, response should be JSON not SSE
-      const initData = JSON.parse(responseText);
-      if (initData.error) {
-        throw new Error(`MCP initialization error: ${initData.error.message}`);
+      // Parse SSE response format
+      const lines = responseText.split('\n');
+      let jsonData = null;
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            jsonData = JSON.parse(line.slice(6));
+            break;
+          } catch (e) {
+            // Continue looking for valid JSON
+          }
+        }
+      }
+      
+      if (!jsonData || jsonData.error) {
+        throw new Error(`MCP initialization error: ${jsonData?.error?.message || 'Unknown error'}`);
       }
       
       this.mcpSessionId = sid;
@@ -240,6 +198,9 @@ export class CLIClient {
 
     // Initialize session (load from Cosmos DB if available)
     await this.agent.initializeSession(); // Print on CLI start
+
+    // Setup MCP tools and register them dynamically
+    await this.setupMCPTools();
 
     // Save session ID for reuse
     try {
