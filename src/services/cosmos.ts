@@ -46,12 +46,16 @@ export class CosmosService {
   /**
    * Save conversation session to Cosmos DB
    */
-  async saveSession(session: ConversationSession): Promise<void> {
+  async saveSession(session: ConversationSession, debug = false): Promise<void> {
     try {
       await this.container.items.upsert(session);
-      console.log(`💾 Saved session ${session.sessionId} to Cosmos DB`);
+      if (debug) {
+        console.log(`💾 Saved session ${session.sessionId} to Cosmos DB`);
+      }
     } catch (error) {
-      console.error('❌ Failed to save session to Cosmos DB:', error);
+      if (debug) {
+        console.error('❌ Failed to save session to Cosmos DB:', error);
+      }
       throw error;
     }
   }
@@ -59,7 +63,7 @@ export class CosmosService {
   /**
    * Load conversation session from Cosmos DB
    */
-  async loadSession(sessionId: string): Promise<ConversationSession | null> {
+  async loadSession(sessionId: string, debug = false): Promise<ConversationSession | null> {
     try {
       const querySpec = {
         query: 'SELECT * FROM c WHERE c.sessionId = @sessionId',
@@ -72,10 +76,14 @@ export class CosmosService {
         return null;
       }
 
-      console.log(`📂 Loaded session ${sessionId} from Cosmos DB`);
+      if (debug) {
+        console.log(`📂 Loaded session ${sessionId} from Cosmos DB`);
+      }
       return resources[0] as ConversationSession;
     } catch (error) {
-      console.error('❌ Failed to load session from Cosmos DB:', error);
+      if (debug) {
+        console.error('❌ Failed to load session from Cosmos DB:', error);
+      }
       return null;
     }
   }
@@ -83,16 +91,28 @@ export class CosmosService {
   /**
    * Add message to existing session
    */
-  async addMessageToSession(sessionId: string, message: ChatMessage): Promise<void> {
+  async addMessageToSession(sessionId: string, message: ChatMessage, debug = false): Promise<void> {
     try {
-      const session = await this.loadSession(sessionId);
+      let session = await this.loadSession(sessionId);
       if (session) {
         session.messages.push(message);
         session.updatedAt = new Date();
-        await this.saveSession(session);
+      } else {
+        // Create a new session if it doesn't exist
+        const now = new Date();
+        session = {
+          id: sessionId, // id field for CosmosDB
+          sessionId,
+          messages: [message],
+          createdAt: now,
+          updatedAt: now,
+        };
       }
+      await this.saveSession(session, debug);
     } catch (error) {
-      console.error('❌ Failed to add message to session:', error);
+      if (debug) {
+        console.error('❌ Failed to add message to session:', error);
+      }
     }
   }
 }

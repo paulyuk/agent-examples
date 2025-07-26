@@ -2,6 +2,8 @@ import * as readline from 'readline';
 import { AgentLoop } from '../agent/loop.js';
 import { MCPServer } from '../server/mcp-server.js';
 import { AgentLoopConfig } from '../types/index.js';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * Interactive CLI client for the Azure OpenAI MCP Agent
@@ -12,11 +14,39 @@ export class CLIClient {
   private mcpServer: MCPServer;
   private rl: readline.Interface;
   private streamingEnabled: boolean = true;
+  private sessionId: string;
+  private static LAST_SESSION_FILE = path.resolve('.last_session');
 
   constructor(config: AgentLoopConfig) {
-    this.agent = new AgentLoop(config);
+    // Parse CLI args for session control
+    const args = process.argv.slice(2);
+    let sessionId: string | undefined = undefined;
+    let forceNewSession = false;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--session' && args[i + 1]) {
+        sessionId = args[i + 1];
+      }
+      if (args[i] === '--new-session') {
+        forceNewSession = true;
+      }
+    }
+
+    // Try to load last session unless forced new
+    if (!sessionId && !forceNewSession && fs.existsSync(CLIClient.LAST_SESSION_FILE)) {
+      try {
+        const lastSession = fs.readFileSync(CLIClient.LAST_SESSION_FILE, 'utf-8').trim();
+        if (lastSession) sessionId = lastSession;
+      } catch {}
+    }
+    // Always ensure sessionId is a string
+    this.sessionId = sessionId || '';
+    if (!this.sessionId) {
+      // Generate a new sessionId using uuid if not provided
+      this.sessionId = crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
+    }
+    this.agent = new AgentLoop(config, this.sessionId);
     this.mcpServer = new MCPServer(config.azureOpenAI, config.mcpServer);
-    
+
     // Setup readline interface for interactive CLI
     this.rl = readline.createInterface({
       input: process.stdin,
@@ -72,7 +102,12 @@ export class CLIClient {
     console.log('');
 
     // Initialize session (load from Cosmos DB if available)
-    await this.agent.initializeSession();
+    await this.agent.initializeSession(); // Print on CLI start
+
+    // Save session ID for reuse
+    try {
+      fs.writeFileSync(CLIClient.LAST_SESSION_FILE, this.agent.getSessionId(), 'utf-8');
+    } catch {}
 
     // Start the MCP server
     await this.mcpServer.start();
@@ -101,7 +136,6 @@ export class CLIClient {
           // Use streaming response
           process.stdout.write('🤖 ');
           const streamGenerator = this.agent.processMessageStream(trimmedInput);
-          
           let result = await streamGenerator.next();
           while (!result.done) {
             if (typeof result.value === 'string') {
@@ -109,13 +143,11 @@ export class CLIClient {
             }
             result = await streamGenerator.next();
           }
-          
           // Final response object
           const finalResponse = result.value;
           if (finalResponse.error) {
             console.log(`\n❌ Error: ${finalResponse.error}`);
           } else {
-            // Display the final message if it exists and wasn't streamed
             if (finalResponse.message && finalResponse.toolCalls && finalResponse.toolCalls.length > 0) {
               console.log(`\n🤖 ${finalResponse.message}`);
             }
@@ -123,32 +155,36 @@ export class CLIClient {
           if (finalResponse.toolCalls && finalResponse.toolCalls.length > 0) {
             console.log(`\n🔧 Used tools: ${finalResponse.toolCalls.map(tc => tc.name).join(', ')}`);
           }
-          console.log(''); // New line after streaming
+          console.log('');
         } else {
           // Use regular non-streaming response
           const response = await this.agent.processMessage(trimmedInput);
-          
           if (response.error) {
             console.log(`❌ Error: ${response.error}`);
           } else {
             console.log(`🤖 ${response.message}`);
-            
             if (response.toolCalls && response.toolCalls.length > 0) {
               console.log(`🔧 Used tools: ${response.toolCalls.map(tc => tc.name).join(', ')}`);
             }
           }
         }
+        // Save session ID after each message (in case a new session was created)
+        try {
+          fs.writeFileSync(CLIClient.LAST_SESSION_FILE, this.agent.getSessionId(), 'utf-8');
+        } catch {}
       } catch (error) {
         console.log(`❌ Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
-
       console.log('');
       this.rl.prompt();
     });
 
     this.rl.on('close', () => {
-      console.log('\n👋 Goodbye! Thanks for using the Azure Functions Assistant!');
-      process.exit(0);
+      (async () => {
+        await this.agent.saveFullSession(true); // Print on exit
+        console.log('\n👋 Goodbye! Thanks for using the Azure Functions Assistant!');
+        process.exit(0);
+      })();
     });
   }
 

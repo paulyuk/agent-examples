@@ -28,6 +28,8 @@ Client ←→ Agent Loop (OpenAI SDK) ←→ MCP Server (Azure Functions Chat To
 - Persist conversation history to Cosmosdb
 - Introduce session id's
 - Implement async/await patterns
+- **Automatically save and restore conversation memory by session ID using CosmosDB**
+- **Session memory is persistent across application restarts and future runs**
 
 ### MCP Server
 - Implement MCP protocol server
@@ -43,6 +45,8 @@ Client ←→ Agent Loop (OpenAI SDK) ←→ MCP Server (Azure Functions Chat To
 - Real-time response streaming
 - Graceful error handling
 - Exit commands and session management
+- **Session ID is reused by default for persistent memory**
+- **CLI supports `--new-session` to start fresh, or `--session <id>` to specify a session**
 
 ## Implementation Details
 
@@ -80,6 +84,7 @@ AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment
 3. **Async Operations**: Non-blocking conversation flow
 4. **Error Resilience**: Comprehensive error handling
 5. **Type Safety**: Full TypeScript implementation
+6. **Persistent Session Memory**: Conversation history is saved to CosmosDB and automatically restored by session ID, even after exiting and restarting the application. The CLI reuses the last session by default, or you can start a new session with `--new-session` or specify a session with `--session <id>`.
 
 ## Success Criteria
 

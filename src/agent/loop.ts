@@ -47,7 +47,7 @@ export class AgentLoop {
    */
   async initializeSession(): Promise<void> {
     if (this.cosmosService) {
-      const existingSession = await this.cosmosService.loadSession(this.sessionId);
+      const existingSession = await this.cosmosService.loadSession(this.sessionId, true);
       if (existingSession) {
         this.conversationHistory = existingSession.messages;
         console.log(`📂 Loaded ${this.conversationHistory.length} messages from session ${this.sessionId}`);
@@ -64,7 +64,7 @@ export class AgentLoop {
         sessionId: this.sessionId,
       };
       this.conversationHistory.push(systemMessage);
-      await this.saveMessageToCosmos(systemMessage);
+      await this.saveMessageToCosmos(systemMessage, true); // Print on session creation
     }
   }
 
@@ -74,13 +74,12 @@ export class AgentLoop {
   getSessionId(): string {
     return this.sessionId;
   }
-
   /**
    * Save message to Cosmos DB if service is available
    */
-  private async saveMessageToCosmos(message: ChatMessage): Promise<void> {
+  private async saveMessageToCosmos(message: ChatMessage, debug = false): Promise<void> {
     if (this.cosmosService) {
-      await this.cosmosService.addMessageToSession(this.sessionId, message);
+      await this.cosmosService.addMessageToSession(this.sessionId, message, debug);
     }
   }
 
@@ -105,7 +104,6 @@ export class AgentLoop {
         timestamp: new Date(),
         sessionId: this.sessionId,
       };
-      
       this.conversationHistory.push(userChatMessage);
       await this.saveMessageToCosmos(userChatMessage);
 
@@ -429,9 +427,31 @@ export class AgentLoop {
   /**
    * Clear conversation history but keep system prompt
    */
-  clearHistory(): void {
+// ...existing code...
+  /**
+   * Save the entire session (all messages) to CosmosDB, with debug log
+   */
+  public async saveFullSession(debug = false): Promise<void> {
+    if (this.cosmosService) {
+      const now = new Date();
+      const session = {
+        id: this.sessionId,
+        sessionId: this.sessionId,
+        messages: this.conversationHistory,
+        createdAt: this.conversationHistory[0]?.timestamp || now,
+        updatedAt: now,
+      };
+      await this.cosmosService.saveSession(session, debug);
+    }
+  }
+
+  /**
+   * Clear conversation history but keep system prompt
+   */
+  public async clearHistory(): Promise<void> {
     const systemMessages = this.conversationHistory.filter(msg => msg.role === 'system');
     this.conversationHistory = systemMessages;
+    await this.saveFullSession(true); // Print on clear
     console.log('🧹 Conversation history cleared');
   }
 
