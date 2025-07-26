@@ -1,6 +1,6 @@
 import * as readline from 'readline';
 import { AgentLoop } from '../agent/loop.js';
-import { MCPServer } from '../server/mcp-server.js';
+import fetch from 'node-fetch';
 import { AgentLoopConfig } from '../types/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -11,23 +11,28 @@ import * as path from 'path';
  */
 export class CLIClient {
   private agent: AgentLoop;
-  private mcpServer: MCPServer;
+  private mcpSessionId: string | null = null;
+  private mcpUrl: string = 'http://localhost:8080/mcp';
   private rl: readline.Interface;
   private streamingEnabled: boolean = true;
   private sessionId: string;
   private static LAST_SESSION_FILE = path.resolve('.last_session');
 
   constructor(config: AgentLoopConfig) {
-    // Parse CLI args for session control
+    // Parse CLI args for session control and chain of thought
     const args = process.argv.slice(2);
     let sessionId: string | undefined = undefined;
     let forceNewSession = false;
+    let chainOfThought = true; // default ON
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '--session' && args[i + 1]) {
         sessionId = args[i + 1];
       }
       if (args[i] === '--new-session') {
         forceNewSession = true;
+      }
+      if (args[i] === '--no-chain-of-thought') {
+        chainOfThought = false;
       }
     }
 
@@ -44,8 +49,10 @@ export class CLIClient {
       // Generate a new sessionId using uuid if not provided
       this.sessionId = crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
     }
+    // Set chainOfThought in config
+    config.chainOfThought = chainOfThought;
     this.agent = new AgentLoop(config, this.sessionId);
-    this.mcpServer = new MCPServer(config.azureOpenAI, config.mcpServer);
+    // this.mcpServer = new MCPServer(config.azureOpenAI, config.mcpServer);
 
     // Setup readline interface for interactive CLI
     this.rl = readline.createInterface({
@@ -61,22 +68,57 @@ export class CLIClient {
    * Setup MCP tools integration with the agent
    */
   private setupMCPTools(): void {
-    // Register the Azure Functions chat tool with working response
-    this.agent.registerMCPTool('azure-functions-chat', async (_args: any) => {
+    // Register the Azure Functions chat tool to call the remote MCP server using streamable HTTP transport
+    this.agent.registerMCPTool('azure-functions-chat', async (args: any) => {
       try {
-        // For now, return a working response while we debug the MCP server hang
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Here are two key features of Azure Functions:\n\n1. **Serverless Computing**: Azure Functions automatically scales based on demand and you only pay for the compute time you consume. No need to manage infrastructure or worry about server provisioning.\n\n2. **Event-Driven Architecture**: Functions can be triggered by various events including HTTP requests, timers, database changes, queue messages, blob storage events, and many other Azure service events, enabling reactive application patterns.`
-            }
-          ]
+        // Ensure MCP session is initialized
+        if (!this.mcpSessionId) {
+          // Start a new session by POSTing with no session header
+          const initRes = await fetch(this.mcpUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', method: 'initialize', params: {}, id: 1 })
+          });
+          const sid = initRes.headers.get('mcp-session-id');
+          if (!sid) throw new Error('Failed to initialize MCP session');
+          this.mcpSessionId = sid;
+        }
+
+        // Only allow params defined in the inputSchema for find-azfunc-samples
+        const allowedKeys = ['query', 'question', 'context', 'author', 'azureService'];
+        const filteredArgs: Record<string, any> = {};
+        if (args && typeof args === 'object') {
+          for (const key of allowedKeys) {
+            if (key in args && args[key] !== undefined) filteredArgs[key] = args[key];
+          }
+        }
+
+        // Call the remote MCP tool (find-azfunc-samples)
+        const mcpReq = {
+          jsonrpc: '2.0',
+          method: 'find-azfunc-samples',
+          params: filteredArgs,
+          id: Date.now()
         };
-        
-        // TODO: Fix the hanging MCP server call
-        // const result = await this.mcpServer.handleAzureFunctionsChat(args);
-        // return result;
+        const res = await fetch(this.mcpUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'mcp-session-id': this.mcpSessionId
+          },
+          body: JSON.stringify(mcpReq)
+        });
+        if (!res.ok) throw new Error(`MCP server error: ${res.status}`);
+        const data = await res.json() as any;
+        if (data.error) {
+          return {
+            content: [{ type: 'text', text: `MCP error: ${data.error.message}` }]
+          };
+        }
+        // The result is in data.result.content
+        return {
+          content: data.result && data.result.content ? data.result.content : [{ type: 'text', text: 'No content returned from MCP tool.' }]
+        };
       } catch (error) {
         console.error(`🔧 Tool handler error:`, error);
         return {
@@ -110,7 +152,7 @@ export class CLIClient {
     } catch {}
 
     // Start the MCP server
-    await this.mcpServer.start();
+    // MCP server is now a standalone process; no need to start it from the CLI
 
     this.rl.prompt();
 
@@ -312,6 +354,6 @@ export class CLIClient {
    */
   async stop(): Promise<void> {
     this.rl.close();
-    await this.mcpServer.stop();
+    // MCP server is now a standalone process; no need to stop it from the CLI
   }
 }

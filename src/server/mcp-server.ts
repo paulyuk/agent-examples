@@ -1,137 +1,195 @@
-import OpenAI from 'openai';
-import {
-  AzureOpenAIConfig,
-  AzureFunctionsChatToolParams,
-  MCPServerConfig,
-} from '../types/index.js';
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import express from "express";
+import { randomUUID } from "node:crypto";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { z } from "zod";
+import fetch from "node-fetch";
 
-/**
- * MCP Server that simulates Azure Functions chat tool
- * Uses OpenAI SDK with Azure OpenAI endpoint
- */
-export class MCPServer {
-  private openaiClient: OpenAI;
-  private config: MCPServerConfig;
-  private azureConfig: AzureOpenAIConfig;
+// Type for a sample in the gallery
+type GallerySample = {
+  title: string;
+  description: string;
+  preview: string;
+  authorUrl: string;
+  author: string;
+  source: string;
+  tags: string[];
+  azureServices: string[];
+  id: string;
+  languages: string[];
+};
 
-  constructor(azureConfig: AzureOpenAIConfig, mcpConfig: MCPServerConfig) {
-    this.azureConfig = azureConfig;
-    this.config = mcpConfig;
+// Type for the gallery JSON
+type Gallery = {
+  samples: GallerySample[];
+};
 
-    // Initialize OpenAI client for Azure OpenAI
-    this.openaiClient = new OpenAI({
-      apiKey: azureConfig.apiKey,
-      baseURL: `${azureConfig.endpoint}/openai/deployments/${azureConfig.deploymentName}`,
-      defaultQuery: { 'api-version': '2024-02-01' },
-      defaultHeaders: {
-        'api-key': azureConfig.apiKey,
-      },
-    });
-  }
+// Helper to fetch and parse the Awesome AZD Gallery JSON
+async function fetchAwesomeAzdGallery(): Promise<Gallery> {
+  const url = "https://raw.githubusercontent.com/Azure/awesome-azd/main/website/static/templates.json";
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch gallery: ${res.status}`);
+  // The JSON is an array of samples, not wrapped in { samples: ... }
+  const arr = await res.json() as any[];
+  // Defensive: ensure each sample has azureServices and languages as arrays
+  const samples: GallerySample[] = arr.map((s: any) => ({
+    title: s.title,
+    description: s.description,
+    preview: s.preview,
+    authorUrl: s.authorUrl,
+    author: s.author,
+    source: s.source,
+    tags: Array.isArray(s.tags) ? s.tags : [],
+    azureServices: Array.isArray(s.azureServices) ? s.azureServices : [],
+    id: s.id,
+    languages: Array.isArray(s.languages) ? s.languages : [],
+  }));
+    // Filter samples to only those where azureServices contains 'functions'
+  const filteredSamples = samples.filter(s => Array.isArray(s.azureServices) && s.azureServices.includes("functions"));
+  const gallery: Gallery = { samples: filteredSamples };
+  return gallery;
+}
 
-  /**
-   * Handle Azure Functions chat tool calls
-   */
-  async handleAzureFunctionsChat(
-    params: AzureFunctionsChatToolParams
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
-    try {
-      const { question, context } = params;
-      
-      // System prompt with Azure Functions expertise
-      const systemPrompt = `You are an expert Azure Functions developer and consultant. 
-      Provide detailed, accurate, and practical answers about Azure Functions development, 
-      deployment, best practices, troubleshooting, and performance optimization.
-      
-      Focus on:
-      - Azure Functions runtime and triggers (HTTP, Timer, Queue, Blob, etc.)
-      - Binding configurations and patterns
-      - Performance optimization and scaling
-      - Security best practices with managed identity
-      - Deployment strategies (ZIP, Docker, ARM templates)
-      - Monitoring and diagnostics with Application Insights
-      - Cost optimization strategies
-      - Integration with other Azure services (Storage, Cosmos DB, Service Bus, etc.)
-      
-      Always provide practical code examples when relevant and explain the reasoning behind recommendations.
-      Include specific configuration examples and best practices.`;
+const server = new McpServer({
+  name: "azure-functions-sample-finder",
+  version: "1.0.0"
+});
 
-      const userContent = context 
-        ? `Context: ${context}\n\nQuestion: ${question}`
-        : question;
-
-      const response = await this.openaiClient.chat.completions.create({
-        model: this.azureConfig.deploymentName,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userContent },
-        ],
-        max_tokens: 1500,
-        temperature: 0.3,
-        top_p: 0.9,
-      });
-
-      const content = response.choices[0]?.message?.content || 'No response generated';
-      
-      return {
-        content: [
-          {
-            type: 'text',
-            text: content,
-          },
-        ],
-      };
-    } catch (error) {
-      console.error('Error in Azure Functions chat tool:', error);
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Error processing Azure Functions question: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          },
-        ],
-      };
-    }
-  }
-
-  /**
-   * Get tool description for the Azure Functions chat tool
-   */
-  getToolDescription(): any {
+// Register a resource for the Awesome AZD Gallery
+server.registerResource(
+  "awesome-azd-gallery-functions",
+  "azd://gallery",
+  {
+    title: "Awesome AZD Gallery",
+    description: "Official Microsoft Azure Developer (AZD) sample gallery filtered by Azure Functions"
+  },
+  async () => {
+    const gallery = await fetchAwesomeAzdGallery();
     return {
-      name: 'azure-functions-chat',
-      description: 'Chat tool specialized in Azure Functions development, best practices, and troubleshooting',
-      parameters: {
-        type: 'object',
-        properties: {
-          question: {
-            type: 'string',
-            description: 'Question about Azure Functions development',
-          },
-          context: {
-            type: 'string',
-            description: 'Optional context or code snippet for more specific help',
-          },
-        },
-        required: ['question'],
-      },
+      contents: [{
+        uri: "azd://gallery",
+        text: JSON.stringify(gallery, null, 2),
+        mimeType: "application/json"
+      }]
     };
   }
+);
 
-  /**
-   * Start the MCP server (simplified)
-   */
-  async start(): Promise<void> {
-    console.log(`🚀 MCP Server ready: ${this.config.name} v${this.config.version}`);
-    console.log('🔧 Available tools: azure-functions-chat');
-    return Promise.resolve();
+// Register a tool to search/filter the gallery
+server.registerTool(
+  "find-azfunc-samples",
+  {
+    title: "Find Azure Functions Samples",
+    description: "Search the Awesome AZD Gallery for Azure Functions samples by query, author, or Azure service.",
+    inputSchema: {
+      query: z.string().optional(),
+      question: z.string().optional(),
+      context: z.string().optional(),
+      author: z.string().optional(),
+      azureService: z.string().optional()
+    }
+  },
+  async (params: any) => {
+    // Require at least one of query or question
+    if (!params.query && !params.question) {
+      return {
+        content: [{
+          type: "text",
+          text: "Error: At least one of 'query' or 'question' is required."
+        }]
+      };
+    }
+    const query = params.query || params.question || "";
+    const author = params.author;
+    const azureService = params.azureService;
+    const gallery: Gallery = await fetchAwesomeAzdGallery();
+    const results = gallery.samples.filter((s: GallerySample) => {
+      const matchesQuery = !query || s.title.toLowerCase().includes(query.toLowerCase()) || (s.description && s.description.toLowerCase().includes(query.toLowerCase()));
+      const matchesAuthor = !author || (s.author && s.author.toLowerCase().includes(author.toLowerCase()));
+      const matchesService = !azureService || (s.azureServices && s.azureServices.map(v => v.toLowerCase()).includes(azureService.toLowerCase()));
+      return matchesQuery && matchesAuthor && matchesService;
+    });
+    return {
+      content: [{
+        type: "text",
+        text: results.length
+          ? results.map((s: GallerySample) => `* ${s.title} (${s.author || "unknown"})\n  ${s.description || ""}\n  Source: ${s.source}\n  Preview: ${s.preview}\n  Azure Services: ${s.azureServices.join(", ")}`).join("\n\n")
+          : "No matching samples found."
+      }]
+    };
+  }
+);
+
+
+// --- Streamable HTTP Transport with Express and session management ---
+const app = express();
+app.use(express.json());
+
+// Map to store transports by session ID
+const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+
+app.post('/mcp', async (req, res) => {
+  console.log('[MCP] Incoming POST /mcp headers:', req.headers);
+  console.log('[MCP] Incoming POST /mcp body:', req.body);
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  let transport: StreamableHTTPServerTransport;
+
+  if (sessionId && transports[sessionId]) {
+    transport = transports[sessionId];
+  } else if (!sessionId) {
+    // New initialization request
+    let newSessionId: string | undefined;
+    // Generate session ID and set header synchronously before any async/response work
+    newSessionId = randomUUID();
+    res.setHeader('mcp-session-id', newSessionId);
+    console.log('[MCP] Generated new sessionId and set header:', newSessionId);
+    transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => newSessionId!,
+      onsessioninitialized: (sid) => {
+        // Already set below, but keep for robustness
+        transports[sid] = transport;
+      },
+      enableDnsRebindingProtection: true,
+      allowedHosts: ['127.0.0.1', 'localhost', 'localhost:8080', '127.0.0.1:8080'],
+    });
+    // Store the transport immediately so it is available for the next request
+    transports[newSessionId] = transport;
+    transport.onclose = () => {
+      if (transport.sessionId) {
+        delete transports[transport.sessionId];
+      }
+    };
+    await server.connect(transport);
+    // Log outgoing headers after handleRequest
+    res.on('finish', () => {
+      console.log('[MCP] Response headers for session init:', res.getHeaders());
+    });
+  } else {
+    res.status(400).json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
+      id: null,
+    });
+    return;
   }
 
-  /**
-   * Stop the MCP server
-   */
-  async stop(): Promise<void> {
-    console.log('🛑 MCP Server stopped');
-    return Promise.resolve();
+  await transport.handleRequest(req, res, req.body);
+});
+
+const handleSessionRequest = async (req: express.Request, res: express.Response) => {
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  if (!sessionId || !transports[sessionId]) {
+    res.status(400).send('Invalid or missing session ID');
+    return;
   }
-}
+  const transport = transports[sessionId];
+  await transport.handleRequest(req, res);
+};
+
+app.get('/mcp', handleSessionRequest);
+app.delete('/mcp', handleSessionRequest);
+
+const PORT = 8080;
+app.listen(PORT, () => {
+  console.log(`MCP server with Awesome AZD Gallery is running (streamable HTTP) on http://localhost:${PORT}/mcp ...`);
+});

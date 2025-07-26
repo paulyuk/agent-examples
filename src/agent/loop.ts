@@ -39,6 +39,11 @@ export class AgentLoop {
       },
     });
 
+    // If chain of thought is enabled, prepend a step-by-step system prompt if not already present
+    if (config.chainOfThought && !config.systemPrompt) {
+      config.systemPrompt = 'You are an expert AI assistant. Think step by step, explain your reasoning before answering, and break down problems into logical steps.';
+    }
+
     console.log(`🆔 Session ID: ${this.sessionId}`);
   }
 
@@ -97,6 +102,17 @@ export class AgentLoop {
    */
   async processMessage(userMessage: string): Promise<AgentResponse> {
     try {
+      // If chain of thought is enabled, insert a synthetic assistant message before user input
+      if (this.config.chainOfThought) {
+        const reasoningMsg: ChatMessage = {
+          role: 'assistant',
+          content: "Let's break down the problem and reason step by step before answering.",
+          timestamp: new Date(),
+          sessionId: this.sessionId,
+        };
+        this.conversationHistory.push(reasoningMsg);
+        await this.saveMessageToCosmos(reasoningMsg);
+      }
       // Add user message to conversation history with session info
       const userChatMessage: ChatMessage = {
         role: 'user',
@@ -121,7 +137,7 @@ export class AgentLoop {
           content: msg.content,
         })),
         max_tokens: 2000,
-        temperature: 0.3,
+        temperature: 0.1,
         top_p: 0.9,
       };
 
@@ -177,6 +193,17 @@ export class AgentLoop {
    */
   async* processMessageStream(userMessage: string): AsyncGenerator<string, AgentResponse, unknown> {
     try {
+      // If chain of thought is enabled, insert a synthetic assistant message before user input
+      if (this.config.chainOfThought) {
+        const reasoningMsg: ChatMessage = {
+          role: 'assistant',
+          content: "Let's break down the problem and reason step by step before answering.",
+          timestamp: new Date(),
+          sessionId: this.sessionId,
+        };
+        this.conversationHistory.push(reasoningMsg);
+        await this.saveMessageToCosmos(reasoningMsg);
+      }
       // Add user message to conversation history with session info
       const userChatMessage: ChatMessage = {
         role: 'user',
