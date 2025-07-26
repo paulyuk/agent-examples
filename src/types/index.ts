@@ -58,9 +58,11 @@ export interface MCPServerConfig {
   version: string;
 }
 
+
 export interface AgentLoopConfig {
   azureOpenAI: AzureOpenAIConfig;
   mcpServer: MCPServerConfig;
   cosmos?: CosmosConfig;
   systemPrompt?: string;
+  chainOfThought?: boolean; // Enable chain of thought mode
 }

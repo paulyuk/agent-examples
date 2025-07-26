@@ -17,6 +17,7 @@ export class AgentLoop {
   private config: AgentLoopConfig;
   private conversationHistory: ChatMessage[] = [];
   private mcpTools: Map<string, any> = new Map();
+  private mcpToolDescriptions: Map<string, any> = new Map(); // Cache for MCP tool descriptions
   private sessionId: string;
   private cosmosService?: CosmosService;
 
@@ -38,6 +39,11 @@ export class AgentLoop {
         'api-key': config.azureOpenAI.apiKey,
       },
     });
+
+    // If chain of thought is enabled, prepend a step-by-step system prompt if not already present
+    if (config.chainOfThought && !config.systemPrompt) {
+      config.systemPrompt = 'You are an expert AI assistant. Think step by step, explain your reasoning before answering, and break down problems into logical steps.';
+    }
 
     console.log(`🆔 Session ID: ${this.sessionId}`);
   }
@@ -92,11 +98,100 @@ export class AgentLoop {
   }
 
   /**
+   * Initialize MCP tools by fetching their descriptions from the server
+   */
+  async initializeMCPTools(mcpSessionId: string): Promise<void> {
+    try {
+      await this.getToolDescriptionsFromMCP(mcpSessionId);
+      console.log(`🚀 MCP tools initialized with ${this.mcpToolDescriptions.size} tool descriptions`);
+    } catch (error) {
+      console.error('❌ Failed to initialize MCP tools:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Register all discovered MCP tools dynamically
+   */
+  registerDiscoveredMCPTools(mcpSessionId: string): void {
+    for (const [toolName] of this.mcpToolDescriptions.entries()) {
+      // Create a generic tool handler that calls the MCP server
+      const toolHandler = async (args: any) => {
+        try {
+          console.log(`[AgentLoop] Calling MCP tool ${toolName} with args:`, JSON.stringify(args, null, 2));
+          
+          const response = await fetch('http://localhost:8080/mcp', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json, text/event-stream',
+              'mcp-session-id': mcpSessionId
+            },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: Math.random().toString(36),
+              method: 'tools/call',
+              params: {
+                name: toolName,
+                arguments: args
+              }
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`MCP server responded with ${response.status}: ${response.statusText}`);
+          }
+
+          // Parse SSE response
+          const text = await response.text();
+          const lines = text.split('\n');
+          let jsonData = null;
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                jsonData = JSON.parse(line.slice(6));
+                break;
+              } catch (e) {
+                // Continue looking for valid JSON
+              }
+            }
+          }
+
+          if (!jsonData || jsonData.error) {
+            throw new Error(`MCP tool call failed: ${jsonData?.error?.message || 'Unknown error'}`);
+          }
+
+          return jsonData.result;
+        } catch (error) {
+          console.error(`❌ Error calling MCP tool ${toolName}:`, error);
+          throw error;
+        }
+      };
+
+      // Register the tool with the generic handler
+      this.mcpTools.set(toolName, toolHandler);
+      console.log(`🔧 Dynamically registered MCP tool: ${toolName}`);
+    }
+  }
+
+  /**
    * Process a user message and generate a response using Azure OpenAI
    * Handles tool calling and maintains conversation context
    */
   async processMessage(userMessage: string): Promise<AgentResponse> {
     try {
+      // If chain of thought is enabled, insert a synthetic assistant message before user input
+      if (this.config.chainOfThought) {
+        const reasoningMsg: ChatMessage = {
+          role: 'assistant',
+          content: "Let's break down the problem and reason step by step before answering.",
+          timestamp: new Date(),
+          sessionId: this.sessionId,
+        };
+        this.conversationHistory.push(reasoningMsg);
+        await this.saveMessageToCosmos(reasoningMsg);
+      }
       // Add user message to conversation history with session info
       const userChatMessage: ChatMessage = {
         role: 'user',
@@ -121,7 +216,7 @@ export class AgentLoop {
           content: msg.content,
         })),
         max_tokens: 2000,
-        temperature: 0.3,
+        temperature: 0.1,
         top_p: 0.9,
       };
 
@@ -177,6 +272,17 @@ export class AgentLoop {
    */
   async* processMessageStream(userMessage: string): AsyncGenerator<string, AgentResponse, unknown> {
     try {
+      // If chain of thought is enabled, insert a synthetic assistant message before user input
+      if (this.config.chainOfThought) {
+        const reasoningMsg: ChatMessage = {
+          role: 'assistant',
+          content: "Let's break down the problem and reason step by step before answering.",
+          timestamp: new Date(),
+          sessionId: this.sessionId,
+        };
+        this.conversationHistory.push(reasoningMsg);
+        await this.saveMessageToCosmos(reasoningMsg);
+      }
       // Add user message to conversation history with session info
       const userChatMessage: ChatMessage = {
         role: 'user',
@@ -384,37 +490,84 @@ export class AgentLoop {
   /**
    * Get tool description for OpenAI function calling
    */
-  private getToolDescription(toolName: string): any {
-    switch (toolName) {
-      case 'azure-functions-chat':
-        return {
-          name: 'azure-functions-chat',
-          description: 'Chat tool specialized in Azure Functions development, best practices, and troubleshooting',
-          parameters: {
-            type: 'object',
-            properties: {
-              question: {
-                type: 'string',
-                description: 'Question about Azure Functions development',
-              },
-              context: {
-                type: 'string',
-                description: 'Optional context or code snippet for more specific help',
-              },
-            },
-            required: ['question'],
-          },
-        };
-      default:
-        return {
-          name: toolName,
-          description: `Tool: ${toolName}`,
-          parameters: {
-            type: 'object',
-            properties: {},
-          },
-        };
+  /**
+   * Fetch tool descriptions from the MCP server using tools/list
+   */
+  private async getToolDescriptionsFromMCP(mcpSessionId: string): Promise<void> {
+    try {
+      console.log("🔍 Fetching tool descriptions from MCP server...");
+      
+      const response = await fetch('http://localhost:8080/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream',
+          'mcp-session-id': mcpSessionId
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Math.random().toString(36),
+          method: 'tools/list',
+          params: {}
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`MCP server responded with ${response.status}: ${response.statusText}`);
+      }
+
+      // Parse SSE response
+      const text = await response.text();
+      const lines = text.split('\n');
+      let jsonData = null;
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            jsonData = JSON.parse(line.slice(6));
+            break;
+          } catch (e) {
+            // Continue looking for valid JSON
+          }
+        }
+      }
+
+      if (!jsonData || jsonData.error) {
+        throw new Error(`MCP tools/list failed: ${jsonData?.error?.message || 'Unknown error'}`);
+      }
+
+      // Cache the tool descriptions
+      this.mcpToolDescriptions.clear();
+      if (jsonData.result && jsonData.result.tools) {
+        for (const tool of jsonData.result.tools) {
+          this.mcpToolDescriptions.set(tool.name, {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.inputSchema || {
+              type: 'object',
+              properties: {},
+            }
+          });
+          console.log(`📋 Cached tool: ${tool.name}`);
+        }
+      }
+
+      console.log(`✅ Loaded ${this.mcpToolDescriptions.size} tool descriptions from MCP server`);
+    } catch (error) {
+      console.error('❌ Failed to fetch tool descriptions from MCP server:', error);
+      throw error;
     }
+  }
+
+  /**
+   * Get a tool description from the cached MCP tool descriptions
+   */
+  private getToolDescription(toolName: string): any {
+    const toolDescription = this.mcpToolDescriptions.get(toolName);
+    if (!toolDescription) {
+      throw new Error(`Tool '${toolName}' not found in MCP server`);
+    }
+    return toolDescription;
   }
 
   /**

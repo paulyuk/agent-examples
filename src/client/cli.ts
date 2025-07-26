@@ -1,6 +1,6 @@
 import * as readline from 'readline';
 import { AgentLoop } from '../agent/loop.js';
-import { MCPServer } from '../server/mcp-server.js';
+import fetch from 'node-fetch';
 import { AgentLoopConfig } from '../types/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -11,23 +11,28 @@ import * as path from 'path';
  */
 export class CLIClient {
   private agent: AgentLoop;
-  private mcpServer: MCPServer;
+  private mcpSessionId: string | null = null;
+  private mcpUrl: string = 'http://localhost:8080/mcp';
   private rl: readline.Interface;
   private streamingEnabled: boolean = true;
   private sessionId: string;
   private static LAST_SESSION_FILE = path.resolve('.last_session');
 
   constructor(config: AgentLoopConfig) {
-    // Parse CLI args for session control
+    // Parse CLI args for session control and chain of thought
     const args = process.argv.slice(2);
     let sessionId: string | undefined = undefined;
     let forceNewSession = false;
+    let chainOfThought = true; // default ON
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '--session' && args[i + 1]) {
         sessionId = args[i + 1];
       }
       if (args[i] === '--new-session') {
         forceNewSession = true;
+      }
+      if (args[i] === '--no-chain-of-thought') {
+        chainOfThought = false;
       }
     }
 
@@ -44,8 +49,10 @@ export class CLIClient {
       // Generate a new sessionId using uuid if not provided
       this.sessionId = crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
     }
+    // Set chainOfThought in config
+    config.chainOfThought = chainOfThought;
     this.agent = new AgentLoop(config, this.sessionId);
-    this.mcpServer = new MCPServer(config.azureOpenAI, config.mcpServer);
+    // this.mcpServer = new MCPServer(config.azureOpenAI, config.mcpServer);
 
     // Setup readline interface for interactive CLI
     this.rl = readline.createInterface({
@@ -54,41 +61,129 @@ export class CLIClient {
       prompt: '🤖 Azure Functions Assistant > ',
     });
 
-    this.setupMCPTools();
+    // Note: setupMCPTools is now async and will be called in start()
   }
 
   /**
    * Setup MCP tools integration with the agent
    */
-  private setupMCPTools(): void {
-    // Register the Azure Functions chat tool with working response
-    this.agent.registerMCPTool('azure-functions-chat', async (_args: any) => {
-      try {
-        // For now, return a working response while we debug the MCP server hang
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Here are two key features of Azure Functions:\n\n1. **Serverless Computing**: Azure Functions automatically scales based on demand and you only pay for the compute time you consume. No need to manage infrastructure or worry about server provisioning.\n\n2. **Event-Driven Architecture**: Functions can be triggered by various events including HTTP requests, timers, database changes, queue messages, blob storage events, and many other Azure service events, enabling reactive application patterns.`
+  private async setupMCPTools(): Promise<void> {
+    // Tools will be registered dynamically after MCP server discovery
+    console.log("🔧 MCP tools will be registered dynamically after server discovery");
+    
+    // Initialize MCP session first
+    try {
+      console.log("🔧 Initializing MCP session...");
+      await this.initializeMCPSession();
+      console.log("✅ MCP session initialized successfully");
+    } catch (error) {
+      console.error("❌ Failed to initialize MCP session:", error);
+      console.log("⚠️  MCP tools will not be available");
+      return;
+    }
+
+    // Initialize MCP tools by fetching their descriptions from the server
+    try {
+      console.log("🔧 Initializing MCP tools...");
+      await this.agent.initializeMCPTools(this.mcpSessionId!);
+      console.log("✅ MCP tools initialized successfully");
+      
+      // Register all discovered tools dynamically
+      console.log("🔧 Registering discovered MCP tools...");
+      this.agent.registerDiscoveredMCPTools(this.mcpSessionId!);
+      console.log("✅ MCP tools registered successfully");
+    } catch (error) {
+      console.error("❌ Failed to initialize MCP tools:", error);
+      console.log("⚠️  Continuing without MCP tools...");
+    }
+  }
+
+  /**
+   * Initialize MCP session (only called once)
+   */
+  private async initializeMCPSession(): Promise<void> {
+    console.log(`[CLI] Initializing MCP session...`);
+    
+    try {
+      // Start a new session by POSTing with no session header
+      // ✅ Match Inspector's exact initialization pattern
+      const initRes = await fetch(this.mcpUrl, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream'
+        },
+        body: JSON.stringify({
+          "jsonrpc": "2.0",
+          "id": 0,
+          "method": "initialize",
+          "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {
+              "sampling": {},
+              "elicitation": {},
+              "roots": {
+                "listChanged": true
+              }
+            },
+            "clientInfo": {
+              "name": "azure-functions-cli",
+              "version": "1.0.0"
             }
-          ]
-        };
+          }
+        })
+      });
+      
+      console.log('[CLI] Init response status:', initRes.status);
+      
+      if (!initRes.ok) {
+        const errorText = await initRes.text();
+        console.log('[CLI] Init failed with response:', errorText);
         
-        // TODO: Fix the hanging MCP server call
-        // const result = await this.mcpServer.handleAzureFunctionsChat(args);
-        // return result;
-      } catch (error) {
-        console.error(`🔧 Tool handler error:`, error);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error processing your Azure Functions question: ${error instanceof Error ? error.message : 'Unknown error'}`
-            }
-          ]
-        };
+        // If server already initialized, that's actually OK - just don't have a session ID
+        if (errorText.includes('Server already initialized')) {
+          console.log('[CLI] Server already initialized, will use no session ID');
+          this.mcpSessionId = null; // Use no session ID for subsequent calls
+          return;
+        }
+        
+        throw new Error(`Failed to initialize MCP session: ${initRes.status} - ${errorText}`);
       }
-    });
+      
+      // Get session ID from response headers
+      const sid = initRes.headers.get('mcp-session-id');
+      console.log('[CLI] Received session ID:', sid);
+      
+      // Parse the streamable HTTP response (SSE format)
+      const responseText = await initRes.text();
+      console.log('[CLI] Init response body:', responseText);
+      
+      // Parse SSE response format
+      const lines = responseText.split('\n');
+      let jsonData = null;
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            jsonData = JSON.parse(line.slice(6));
+            break;
+          } catch (e) {
+            // Continue looking for valid JSON
+          }
+        }
+      }
+      
+      if (!jsonData || jsonData.error) {
+        throw new Error(`MCP initialization error: ${jsonData?.error?.message || 'Unknown error'}`);
+      }
+      
+      this.mcpSessionId = sid;
+      console.log('[CLI] Successfully initialized MCP session:', this.mcpSessionId);
+      
+    } catch (error) {
+      console.error('[CLI] Failed to initialize MCP session:', error);
+      throw error;
+    }
   }
 
   /**
@@ -104,13 +199,16 @@ export class CLIClient {
     // Initialize session (load from Cosmos DB if available)
     await this.agent.initializeSession(); // Print on CLI start
 
+    // Setup MCP tools and register them dynamically
+    await this.setupMCPTools();
+
     // Save session ID for reuse
     try {
       fs.writeFileSync(CLIClient.LAST_SESSION_FILE, this.agent.getSessionId(), 'utf-8');
     } catch {}
 
     // Start the MCP server
-    await this.mcpServer.start();
+    // MCP server is now a standalone process; no need to start it from the CLI
 
     this.rl.prompt();
 
@@ -312,6 +410,6 @@ export class CLIClient {
    */
   async stop(): Promise<void> {
     this.rl.close();
-    await this.mcpServer.stop();
+    // MCP server is now a standalone process; no need to stop it from the CLI
   }
 }
