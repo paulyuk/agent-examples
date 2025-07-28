@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "mcp-server": "tsx src/server/mcp-server.ts",
+    "mcp-server": "tsx src/tools/mcp-server.ts",
     "dev": "tsx src/index.ts",
     "dev:watch": "tsx watch src/index.ts",
     "lint": "eslint src/**/*.ts",

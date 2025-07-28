@@ -24,7 +24,7 @@ azure-openai-mcp-agent/
 │   ├── index.ts              # Main entry point with configuration
 │   ├── agent/
 │   │   └── loop.ts           # Core agent orchestration
-│   ├── server/
+│   ├── tools/
 │   │   └── mcp-server.ts     # MCP tool implementations
 │   ├── client/
 │   │   └── cli.ts            # Interactive CLI interface

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import * as dotenv from 'dotenv';
+import { uuid } from 'uuidv4';
+import fetch from 'node-fetch';
 import { AgentLoop } from '../dist/agent/loop.js';
-import { MCPServer } from '../dist/server/mcp-server.js';
+import { MCPServer } from '../dist/tools/mcp-server.js';
 
 dotenv.config();
 

@@ -1,6 +1,8 @@
 import * as dotenv from 'dotenv';
 import { AgentLoop } from '../dist/agent/loop.js';
-import { MCPServer } from '../dist/server/mcp-server.js';
+import { uuid } from 'uuidv4';
+import fetch from 'node-fetch';
+import { MCPServer } from '../dist/tools/mcp-server.js';
 
 // Load environment variables
 dotenv.config();

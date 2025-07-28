@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv';
-import { MCPServer } from '../dist/server/mcp-server.js';
+import fetch from 'node-fetch';
+import { MCPServer } from '../dist/tools/mcp-server.js';
 
 // Load environment variables
 dotenv.config();
