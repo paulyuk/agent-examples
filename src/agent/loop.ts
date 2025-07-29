@@ -1,5 +1,7 @@
 import OpenAI from 'openai';
 import { v4 as uuidv4 } from 'uuid';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
   ChatMessage,
   AgentResponse,
@@ -20,6 +22,8 @@ export class AgentLoop {
   private mcpToolDescriptions: Map<string, any> = new Map(); // Cache for MCP tool descriptions
   private sessionId: string;
   private cosmosService?: CosmosService;
+  private mcpClient?: Client | undefined;
+  private mcpTransport?: StreamableHTTPClientTransport | undefined;
 
   constructor(config: AgentLoopConfig, sessionId?: string) {
     this.config = config;
@@ -98,11 +102,27 @@ export class AgentLoop {
   }
 
   /**
-   * Initialize MCP tools by fetching their descriptions from the server
+   * Initialize MCP tools by creating SDK client and fetching their descriptions
    */
   async initializeMCPTools(mcpSessionId: string): Promise<void> {
     try {
-      await this.getToolDescriptionsFromMCP(mcpSessionId);
+      // Note: mcpSessionId kept for API compatibility but not used with SDK client
+      console.log(`🔗 Initializing MCP tools via SDK (session: ${mcpSessionId})`);
+      
+      // Create MCP client with StreamableHTTPClientTransport
+      const mcpUrl = new URL('http://localhost:8080/mcp');
+      this.mcpTransport = new StreamableHTTPClientTransport(mcpUrl);
+      
+      this.mcpClient = new Client({
+        name: 'azure-functions-cli',
+        version: '1.0.0'
+      });
+
+      // Connect to the MCP server - cast to Transport as the SDK type-checking is too strict
+      await this.mcpClient.connect(this.mcpTransport as any);
+      console.log('🔗 MCP client connected via SDK');
+
+      await this.getToolDescriptionsFromMCP();
       console.log(`🚀 MCP tools initialized with ${this.mcpToolDescriptions.size} tool descriptions`);
     } catch (error) {
       console.error('❌ Failed to initialize MCP tools:', error);
@@ -111,58 +131,33 @@ export class AgentLoop {
   }
 
   /**
-   * Register all discovered MCP tools dynamically
+   * Register all discovered MCP tools dynamically using SDK client
    */
   registerDiscoveredMCPTools(mcpSessionId: string): void {
+    // Note: mcpSessionId kept for API compatibility but not used with SDK client
+    console.log(`🔧 Registering MCP tools via SDK (session: ${mcpSessionId})`);
+    
+    if (!this.mcpClient) {
+      throw new Error('MCP client not initialized. Call initializeMCPTools first.');
+    }
+
     for (const [toolName] of this.mcpToolDescriptions.entries()) {
-      // Create a generic tool handler that calls the MCP server
+      // Create a generic tool handler that calls the MCP server via SDK
       const toolHandler = async (args: any) => {
         try {
           console.log(`[AgentLoop] Calling MCP tool ${toolName} with args:`, JSON.stringify(args, null, 2));
           
-          const response = await fetch('http://localhost:8080/mcp', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json, text/event-stream',
-              'mcp-session-id': mcpSessionId
-            },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: Math.random().toString(36),
-              method: 'tools/call',
-              params: {
-                name: toolName,
-                arguments: args
-              }
-            })
+          if (!this.mcpClient) {
+            throw new Error('MCP client not available');
+          }
+
+          // Use SDK client to call the tool (replaces manual tools/call)
+          const result = await this.mcpClient.callTool({
+            name: toolName,
+            arguments: args
           });
 
-          if (!response.ok) {
-            throw new Error(`MCP server responded with ${response.status}: ${response.statusText}`);
-          }
-
-          // Parse SSE response
-          const text = await response.text();
-          const lines = text.split('\n');
-          let jsonData = null;
-          
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                jsonData = JSON.parse(line.slice(6));
-                break;
-              } catch (e) {
-                // Continue looking for valid JSON
-              }
-            }
-          }
-
-          if (!jsonData || jsonData.error) {
-            throw new Error(`MCP tool call failed: ${jsonData?.error?.message || 'Unknown error'}`);
-          }
-
-          return jsonData.result;
+          return result;
         } catch (error) {
           console.error(`❌ Error calling MCP tool ${toolName}:`, error);
           throw error;
@@ -493,53 +488,25 @@ export class AgentLoop {
   /**
    * Fetch tool descriptions from the MCP server using tools/list
    */
-  private async getToolDescriptionsFromMCP(mcpSessionId: string): Promise<void> {
+  /**
+   * Fetch tool descriptions from the MCP server using SDK client
+   * Replaces manual tools/list call with SDK listTools()
+   */
+  private async getToolDescriptionsFromMCP(): Promise<void> {
     try {
-      console.log("🔍 Fetching tool descriptions from MCP server...");
+      console.log("🔍 Fetching tool descriptions from MCP server via SDK...");
       
-      const response = await fetch('http://localhost:8080/mcp', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json, text/event-stream',
-          'mcp-session-id': mcpSessionId
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: Math.random().toString(36),
-          method: 'tools/list',
-          params: {}
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`MCP server responded with ${response.status}: ${response.statusText}`);
+      if (!this.mcpClient) {
+        throw new Error('MCP client not initialized');
       }
 
-      // Parse SSE response
-      const text = await response.text();
-      const lines = text.split('\n');
-      let jsonData = null;
-      
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            jsonData = JSON.parse(line.slice(6));
-            break;
-          } catch (e) {
-            // Continue looking for valid JSON
-          }
-        }
-      }
-
-      if (!jsonData || jsonData.error) {
-        throw new Error(`MCP tools/list failed: ${jsonData?.error?.message || 'Unknown error'}`);
-      }
+      // Use SDK client to list tools (replaces manual tools/list)
+      const result = await this.mcpClient.listTools();
 
       // Cache the tool descriptions
       this.mcpToolDescriptions.clear();
-      if (jsonData.result && jsonData.result.tools) {
-        for (const tool of jsonData.result.tools) {
+      if (result.tools) {
+        for (const tool of result.tools) {
           this.mcpToolDescriptions.set(tool.name, {
             name: tool.name,
             description: tool.description,
@@ -613,5 +580,21 @@ export class AgentLoop {
    */
   getRegisteredTools(): string[] {
     return Array.from(this.mcpTools.keys());
+  }
+
+  /**
+   * Clean up MCP client connection
+   */
+  async cleanup(): Promise<void> {
+    if (this.mcpClient) {
+      try {
+        await this.mcpClient.close();
+        console.log('🔌 MCP client connection closed');
+      } catch (error) {
+        console.error('❌ Error closing MCP client:', error);
+      }
+      this.mcpClient = undefined;
+      this.mcpTransport = undefined;
+    }
   }
 }
