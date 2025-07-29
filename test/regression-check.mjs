@@ -36,11 +36,12 @@ const checks = [
     }
   },
   {
-    name: 'Has proper SSE Accept headers',
+    name: 'Uses proper MCP transport (SDK or SSE)',
     file: 'src/agent/loop.ts',
     test: (content) => {
+      const hasSDK = content.includes('StreamableHTTPClientTransport');
       const hasSSE = content.includes('text/event-stream');
-      return { pass: hasSSE, message: hasSSE ? 'OK' : 'Missing SSE Accept header' };
+      return { pass: hasSDK || hasSSE, message: hasSDK ? 'OK (using SDK transport)' : hasSSE ? 'OK (using manual SSE)' : 'Missing proper transport' };
     }
   },
   {

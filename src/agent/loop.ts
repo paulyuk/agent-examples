@@ -583,6 +583,13 @@ export class AgentLoop {
   }
 
   /**
+   * Get tool handler for testing (internal use)
+   */
+  getToolHandler(toolName: string): any {
+    return this.mcpTools.get(toolName);
+  }
+
+  /**
    * Clean up MCP client connection
    */
   async cleanup(): Promise<void> {

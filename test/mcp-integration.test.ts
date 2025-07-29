@@ -61,15 +61,24 @@ async function testMCPProtocolCalls() {
   try {
     const loopFile = readFileSync('src/agent/loop.ts', 'utf8');
     
-    const hasToolsList = loopFile.includes('tools/list');
-    const hasToolsCall = loopFile.includes('tools/call');
+    // Check for SDK usage or manual protocol calls
+    const hasSDKToolsList = loopFile.includes('listTools()') || loopFile.includes('client.listTools');
+    const hasSDKToolsCall = loopFile.includes('callTool({') || loopFile.includes('client.callTool');
+    const hasManualToolsList = loopFile.includes('tools/list');
+    const hasManualToolsCall = loopFile.includes('tools/call');
     
-    if (!hasToolsList || !hasToolsCall) {
+    const hasProtocolCalls = (hasSDKToolsList && hasSDKToolsCall) || (hasManualToolsList && hasManualToolsCall);
+    
+    if (!hasProtocolCalls) {
       console.error('❌ Missing MCP protocol calls (tools/list or tools/call)');
       return false;
     }
     
-    console.log('✅ Contains proper MCP protocol calls');
+    if (hasSDKToolsList && hasSDKToolsCall) {
+      console.log('✅ Contains proper MCP protocol calls (using SDK)');
+    } else {
+      console.log('✅ Contains proper MCP protocol calls (using manual implementation)');
+    }
     return true;
   } catch (error) {
     console.error('❌ Error checking MCP protocol calls:', error);
@@ -78,23 +87,31 @@ async function testMCPProtocolCalls() {
 }
 
 async function testSSEHeaders() {
-  console.log('\n📡 Test 4: Should have proper SSE Accept headers');
+  console.log('\n📡 Test 4: Should have proper MCP transport');
   
   try {
     const loopFile = readFileSync('src/agent/loop.ts', 'utf8');
     
+    // Check for SDK transport or manual SSE headers
+    const hasSDKTransport = loopFile.includes('StreamableHTTPClientTransport');
     const hasSSEHeader = loopFile.includes('text/event-stream');
     const hasProperAccept = loopFile.includes('application/json, text/event-stream');
     
-    if (!hasSSEHeader || !hasProperAccept) {
-      console.error('❌ Missing proper SSE Accept headers');
+    const hasProperTransport = hasSDKTransport || (hasSSEHeader && hasProperAccept);
+    
+    if (!hasProperTransport) {
+      console.error('❌ Missing proper MCP transport');
       return false;
     }
     
-    console.log('✅ Contains proper SSE Accept headers');
+    if (hasSDKTransport) {
+      console.log('✅ Contains proper MCP transport (using SDK)');
+    } else {
+      console.log('✅ Contains proper MCP transport (using manual SSE)');
+    }
     return true;
   } catch (error) {
-    console.error('❌ Error checking SSE headers:', error);
+    console.error('❌ Error checking MCP transport:', error);
     return false;
   }
 }
