@@ -51,15 +51,19 @@ console.log('');
 console.log('📝 Setup Instructions:');
 console.log('1. Copy .env.example to .env');
 console.log('2. Update .env with your Azure OpenAI credentials');
-console.log('3. Run: npm run dev');
-console.log('4. Start chatting with the Azure Functions expert!');
+console.log('3. Run: npm run mcp-server (in separate terminal)');
+console.log('4. Run: npm test (to verify setup)');
+console.log('5. Run: npm run dev');
+console.log('6. Start chatting with the Azure Functions expert!');
 console.log('');
 
 console.log('🛠️  Available Commands:');
-console.log('- npm run dev      # Start in development mode');
-console.log('- npm run build    # Build TypeScript');
-console.log('- npm start        # Run built version');
-console.log('- npm run lint     # Run ESLint');
+console.log('- npm run dev        # Start in development mode');
+console.log('- npm run build      # Build TypeScript');
+console.log('- npm start          # Run built version');
+console.log('- npm run lint       # Run ESLint');
+console.log('- npm test           # Run MCP integration tests');
+console.log('- npm run mcp-server # Start MCP server (for development)');
 console.log('');
 
 console.log('💡 The agent uses Azure OpenAI with function calling to provide');
