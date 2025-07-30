@@ -62,6 +62,7 @@ azure-openai-mcp-agent/
    AZURE_OPENAI_API_KEY=your-api-key
    AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
    MCP_SERVER_PORT=3000
+   MCP_SERVER_URL=http://localhost:3000/mcp
    ```
 
 4. **Optional Cosmos DB configuration** (for conversation persistence):

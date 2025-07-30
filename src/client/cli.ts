@@ -1,9 +1,8 @@
 import * as readline from 'readline';
-import { AgentLoop } from '../agent/loop.js';
-import fetch from 'node-fetch';
-import { AgentLoopConfig } from '../types/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { AgentLoop } from '../agent/loop.js';
+import { AgentLoopConfig } from '../types/index.js';
 
 /**
  * Interactive CLI client for the Azure OpenAI MCP Agent
@@ -11,12 +10,11 @@ import * as path from 'path';
  */
 export class CLIClient {
   private agent: AgentLoop;
-  private mcpSessionId: string | null = null;
-  private mcpUrl: string = 'http://localhost:8080/mcp';
   private rl: readline.Interface;
   private streamingEnabled: boolean = true;
   private sessionId: string;
   private static LAST_SESSION_FILE = path.resolve('.last_session');
+  private static LAST_MCP_SESSION_FILE = path.resolve('.last_mcp_session');
 
   constructor(config: AgentLoopConfig) {
     // Parse CLI args for session control and chain of thought
@@ -64,34 +62,33 @@ export class CLIClient {
     // Note: setupMCPTools is now async and will be called in start()
   }
 
-  /**
+    /**
    * Setup MCP tools integration with the agent
    */
   private async setupMCPTools(): Promise<void> {
-    // Tools will be registered dynamically after MCP server discovery
-    console.log("🔧 MCP tools will be registered dynamically after server discovery");
+    console.log("🔧 Setting up MCP tools with session reuse...");
     
-    // Initialize MCP session first
-    try {
-      console.log("🔧 Initializing MCP session...");
-      await this.initializeMCPSession();
-      console.log("✅ MCP session initialized successfully");
-    } catch (error) {
-      console.error("❌ Failed to initialize MCP session:", error);
-      console.log("⚠️  MCP tools will not be available");
-      return;
+    // First, try to load any existing MCP session ID for reuse
+    let mcpSessionId = this.loadLastMCPSession();
+    if (!mcpSessionId) {
+      // For new connections, use a derivation of agent session ID or 'initial'
+      mcpSessionId = this.sessionId ? `mcp-${this.sessionId}` : 'initial';
+    } else {
+      console.log(`🔄 Attempting to reuse MCP session: ${mcpSessionId}`);
     }
-
-    // Initialize MCP tools by fetching their descriptions from the server
+    
     try {
       console.log("🔧 Initializing MCP tools...");
-      await this.agent.initializeMCPTools(this.mcpSessionId!);
+      await this.agent.initializeMCPTools(mcpSessionId);
       console.log("✅ MCP tools initialized successfully");
       
-      // Register all discovered tools dynamically
-      console.log("🔧 Registering discovered MCP tools...");
-      this.agent.registerDiscoveredMCPTools(this.mcpSessionId!);
-      console.log("✅ MCP tools registered successfully");
+      // Store the actual MCP session ID for future reuse
+      const actualMCPSessionId = this.agent.getMCPSessionId();
+      if (actualMCPSessionId) {
+        this.saveLastMCPSession(actualMCPSessionId);
+        console.log(`📝 MCP session ID saved for reuse: ${actualMCPSessionId}`);
+      }
+      
     } catch (error) {
       console.error("❌ Failed to initialize MCP tools:", error);
       console.log("⚠️  Continuing without MCP tools...");
@@ -99,90 +96,28 @@ export class CLIClient {
   }
 
   /**
-   * Initialize MCP session (only called once)
+   * Load the last MCP session ID from file
    */
-  private async initializeMCPSession(): Promise<void> {
-    console.log(`[CLI] Initializing MCP session...`);
-    
+  private loadLastMCPSession(): string | undefined {
     try {
-      // Start a new session by POSTing with no session header
-      // ✅ Match Inspector's exact initialization pattern
-      const initRes = await fetch(this.mcpUrl, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json, text/event-stream'
-        },
-        body: JSON.stringify({
-          "jsonrpc": "2.0",
-          "id": 0,
-          "method": "initialize",
-          "params": {
-            "protocolVersion": "2025-06-18",
-            "capabilities": {
-              "sampling": {},
-              "elicitation": {},
-              "roots": {
-                "listChanged": true
-              }
-            },
-            "clientInfo": {
-              "name": "azure-functions-cli",
-              "version": "1.0.0"
-            }
-          }
-        })
-      });
-      
-      console.log('[CLI] Init response status:', initRes.status);
-      
-      if (!initRes.ok) {
-        const errorText = await initRes.text();
-        console.log('[CLI] Init failed with response:', errorText);
-        
-        // If server already initialized, that's actually OK - just don't have a session ID
-        if (errorText.includes('Server already initialized')) {
-          console.log('[CLI] Server already initialized, will use no session ID');
-          this.mcpSessionId = null; // Use no session ID for subsequent calls
-          return;
-        }
-        
-        throw new Error(`Failed to initialize MCP session: ${initRes.status} - ${errorText}`);
+      if (fs.existsSync(CLIClient.LAST_MCP_SESSION_FILE)) {
+        const lastMCPSession = fs.readFileSync(CLIClient.LAST_MCP_SESSION_FILE, 'utf-8').trim();
+        return lastMCPSession || undefined;
       }
-      
-      // Get session ID from response headers
-      const sid = initRes.headers.get('mcp-session-id');
-      console.log('[CLI] Received session ID:', sid);
-      
-      // Parse the streamable HTTP response (SSE format)
-      const responseText = await initRes.text();
-      console.log('[CLI] Init response body:', responseText);
-      
-      // Parse SSE response format
-      const lines = responseText.split('\n');
-      let jsonData = null;
-      
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            jsonData = JSON.parse(line.slice(6));
-            break;
-          } catch (e) {
-            // Continue looking for valid JSON
-          }
-        }
-      }
-      
-      if (!jsonData || jsonData.error) {
-        throw new Error(`MCP initialization error: ${jsonData?.error?.message || 'Unknown error'}`);
-      }
-      
-      this.mcpSessionId = sid;
-      console.log('[CLI] Successfully initialized MCP session:', this.mcpSessionId);
-      
     } catch (error) {
-      console.error('[CLI] Failed to initialize MCP session:', error);
-      throw error;
+      console.log('No previous MCP session found, will create new one');
+    }
+    return undefined;
+  }
+
+  /**
+   * Save the MCP session ID to file for future reuse
+   */
+  private saveLastMCPSession(mcpSessionId: string): void {
+    try {
+      fs.writeFileSync(CLIClient.LAST_MCP_SESSION_FILE, mcpSessionId, 'utf-8');
+    } catch (error) {
+      console.warn('Failed to save MCP session ID:', error);
     }
   }
 

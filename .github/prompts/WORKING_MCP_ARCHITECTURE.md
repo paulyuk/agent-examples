@@ -13,7 +13,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 const transport = new StreamableHTTPServerTransport({
   sessionIdGenerator: () => crypto.randomUUID(),
   enableDnsRebindingProtection: true,
-  allowedHosts: ['127.0.0.1', 'localhost', 'localhost:8080', '127.0.0.1:8080'],
+  allowedHosts: ['127.0.0.1', 'localhost', 'localhost:3000', '127.0.0.1:3000'],
 });
 
 const httpServer = createServer(async (req, res) => {
@@ -37,7 +37,7 @@ const httpServer = createServer(async (req, res) => {
 5. **Content Types**: Supports both `application/json` and `text/event-stream`
 
 ### Inspector Success Pattern
-- ✅ Connects successfully to `http://localhost:8080/mcp`
+- ✅ Connects successfully to `http://localhost:3000/mcp`
 - ✅ Handles session management with mcp-session-id headers
 - ✅ Uses proper Accept headers: `application/json, text/event-stream`
 - ✅ Maintains persistent sessions across GET/POST requests

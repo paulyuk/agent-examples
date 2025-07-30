@@ -5,13 +5,13 @@
 ### MCP Server Management
 - **ONLY THE HUMAN** can start/stop the MCP server
 - **Command**: `npm run mcp-server`
-- **Port**: http://localhost:8080/mcp
+- **Port**: http://localhost:3000/mcp
 - **Architecture**: Direct HTTP server with `createServer` (NO Express middleware)
 
 ### CLI Client Management  
 - **Copilot should use**: `npm run dev` to start the CLI client
 - **Never use**: `node dist/src/client/cli.js` directly
-- **The CLI connects to the MCP server** at http://localhost:8080/mcp
+- **The CLI connects to the MCP server** at http://localhost:3000/mcp
 
 ## 🚨 DO NOT BREAK THE WORKING MCP SERVER ARCHITECTURE
 

@@ -1,37 +1,41 @@
 import * as dotenv from 'dotenv';
 import fetch from 'node-fetch';
-import { MCPServer } from '../dist/tools/mcp-server.js';
 
 dotenv.config();
 
 async function testMCPServer() {
   try {
-    console.log('🧪 Testing MCP Server...');
+    console.log('🧪 Testing MCP Server via HTTP...');
     
-    const config = {
-      azureOpenAI: {
-        endpoint: process.env.AZURE_OPENAI_ENDPOINT,
-        apiKey: process.env.AZURE_OPENAI_API_KEY,
-        deploymentName: process.env.AZURE_OPENAI_DEPLOYMENT_NAME,
+    const mcpServerUrl = process.env.MCP_SERVER_URL || 'http://localhost:3000/mcp';
+    
+    // Test MCP server by calling tools/list
+    const response = await fetch(mcpServerUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream'
       },
-      mcpServer: {
-        port: 3000,
-        name: 'azure-functions-mcp-server',
-        version: '1.0.0',
-      },
-    };
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'test-' + Math.random().toString(36),
+        method: 'tools/list'
+      })
+    });
 
-    const mcpServer = new MCPServer(config.azureOpenAI, config.mcpServer);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const text = await response.text();
+    console.log('🧪 MCP Server response:', text);
     
-    console.log('🧪 Calling handleAzureFunctionsChat...');
-    const result = await Promise.race([
-      mcpServer.handleAzureFunctionsChat({
-        question: 'what are two features of functions'
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('MCP call timeout')), 15000))
-    ]);
-    
-    console.log('🧪 MCP Server result:', result);
+    // Simple validation
+    if (text.includes('get_azure_functions_samples')) {
+      console.log('✅ Test PASSED: MCP server is working');
+    } else {
+      console.log('❌ Test FAILED: Expected tools not found');
+    }
     
   } catch (error) {
     console.error('🧪 MCP Server test error:', error);

@@ -1,9 +1,27 @@
 import * as dotenv from 'dotenv';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { CLIClient } from './client/cli.js';
 import { AgentLoopConfig } from './types/index.js';
 
 // Load environment variables
 dotenv.config();
+
+/**
+ * Load system prompt from external markdown file
+ */
+function loadSystemPrompt(): string {
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const promptPath = join(__dirname, 'system_prompt.md');
+    return readFileSync(promptPath, 'utf-8');
+  } catch (error) {
+    console.error('⚠️ Could not load system_prompt.md, using fallback prompt');
+    return 'You are an Azure Functions expert assistant. Provide helpful guidance on Azure Functions development.';
+  }
+}
 
 /**
  * Main entry point for the Azure OpenAI MCP Agent
@@ -49,18 +67,7 @@ async function main(): Promise<void> {
         version: '1.0.0',
       },
       ...(cosmosConfig && { cosmos: cosmosConfig }),
-      systemPrompt: `You are an Azure Functions expert assistant powered by Azure OpenAI. 
-      You have access to specialized Azure Functions tools through the Model Context Protocol (MCP).
-      
-      Your expertise includes:
-      - Azure Functions development and best practices
-      - Triggers, bindings, and runtime configurations
-      - Performance optimization and scaling
-      - Security and monitoring with managed identity
-      - Integration with other Azure services
-      - Troubleshooting and debugging
-      
-      Always provide accurate, helpful, and practical guidance for Azure Functions development.`,
+      systemPrompt: loadSystemPrompt(),
     };
 
     // Create and start the CLI client with streaming support

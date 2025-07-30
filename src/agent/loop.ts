@@ -1,5 +1,7 @@
 import OpenAI from 'openai';
 import { v4 as uuidv4 } from 'uuid';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
   ChatMessage,
   AgentResponse,
@@ -19,7 +21,10 @@ export class AgentLoop {
   private mcpTools: Map<string, any> = new Map();
   private mcpToolDescriptions: Map<string, any> = new Map(); // Cache for MCP tool descriptions
   private sessionId: string;
+  private mcpSessionId?: string; // Session ID for MCP connection reuse
   private cosmosService?: CosmosService;
+  private mcpClient?: Client | undefined;
+  private mcpTransport?: StreamableHTTPClientTransport | undefined;
 
   constructor(config: AgentLoopConfig, sessionId?: string) {
     this.config = config;
@@ -55,13 +60,13 @@ export class AgentLoop {
     if (this.cosmosService) {
       const existingSession = await this.cosmosService.loadSession(this.sessionId, true);
       if (existingSession) {
-        this.conversationHistory = existingSession.messages;
-        console.log(`📂 Loaded ${this.conversationHistory.length} messages from session ${this.sessionId}`);
-        return;
+        // Load existing conversation but filter out old system prompts
+        this.conversationHistory = existingSession.messages.filter(msg => msg.role !== 'system');
+        console.log(`📂 Loaded ${this.conversationHistory.length} messages from session ${this.sessionId} (excluding system prompt)`);
       }
     }
 
-    // Set up system prompt if provided and no existing session
+    // Always set up the current system prompt from config
     if (this.config.systemPrompt) {
       const systemMessage: ChatMessage = {
         role: 'system',
@@ -69,7 +74,8 @@ export class AgentLoop {
         timestamp: new Date(),
         sessionId: this.sessionId,
       };
-      this.conversationHistory.push(systemMessage);
+      // Insert at the beginning to ensure it's first
+      this.conversationHistory.unshift(systemMessage);
       await this.saveMessageToCosmos(systemMessage, true); // Print on session creation
     }
   }
@@ -79,6 +85,13 @@ export class AgentLoop {
    */
   getSessionId(): string {
     return this.sessionId;
+  }
+
+  /**
+   * Get the current MCP session ID for connection reuse
+   */
+  getMCPSessionId(): string | undefined {
+    return this.mcpSessionId;
   }
   /**
    * Save message to Cosmos DB if service is available
@@ -98,11 +111,38 @@ export class AgentLoop {
   }
 
   /**
-   * Initialize MCP tools by fetching their descriptions from the server
+   * Initialize MCP tools by creating SDK client and fetching their descriptions
    */
   async initializeMCPTools(mcpSessionId: string): Promise<void> {
     try {
-      await this.getToolDescriptionsFromMCP(mcpSessionId);
+      console.log(`🔗 Initializing MCP tools via SDK (session: ${mcpSessionId})`);
+      
+      // Create MCP client following official example pattern
+      this.mcpClient = new Client({
+        name: 'azure-functions-cli',
+        version: '1.0.0'
+      });
+
+      // For now, always create fresh connections to ensure stability
+      // TODO: Implement session reuse once basic connection is stable
+      console.log('🔄 Creating fresh transport connection');
+      const mcpServerUrl = process.env.MCP_SERVER_URL || 'http://localhost:3000/mcp';
+      const mcpUrl = new URL(mcpServerUrl);
+      this.mcpTransport = new StreamableHTTPClientTransport(mcpUrl);
+
+      // Connect to the MCP server (this handles initialization automatically)
+      await this.mcpClient.connect(this.mcpTransport as any);
+      
+      // Get the actual session ID from transport after connection
+      if (this.mcpTransport?.sessionId) {
+        this.mcpSessionId = this.mcpTransport.sessionId;
+        console.log('✅ MCP client connected via SDK, session ID:', this.mcpSessionId);
+      } else {
+        console.log('✅ MCP client connected via SDK (no session ID)');
+      }
+
+      await this.getToolDescriptionsFromMCP();
+      this.registerDiscoveredMCPTools(this.mcpSessionId || mcpSessionId);
       console.log(`🚀 MCP tools initialized with ${this.mcpToolDescriptions.size} tool descriptions`);
     } catch (error) {
       console.error('❌ Failed to initialize MCP tools:', error);
@@ -111,58 +151,33 @@ export class AgentLoop {
   }
 
   /**
-   * Register all discovered MCP tools dynamically
+   * Register all discovered MCP tools dynamically using SDK client
    */
   registerDiscoveredMCPTools(mcpSessionId: string): void {
+    // Note: mcpSessionId kept for API compatibility but not used with SDK client
+    console.log(`🔧 Registering MCP tools via SDK (session: ${mcpSessionId})`);
+    
+    if (!this.mcpClient) {
+      throw new Error('MCP client not initialized. Call initializeMCPTools first.');
+    }
+
     for (const [toolName] of this.mcpToolDescriptions.entries()) {
-      // Create a generic tool handler that calls the MCP server
+      // Create a generic tool handler that calls the MCP server via SDK
       const toolHandler = async (args: any) => {
         try {
           console.log(`[AgentLoop] Calling MCP tool ${toolName} with args:`, JSON.stringify(args, null, 2));
           
-          const response = await fetch('http://localhost:8080/mcp', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json, text/event-stream',
-              'mcp-session-id': mcpSessionId
-            },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: Math.random().toString(36),
-              method: 'tools/call',
-              params: {
-                name: toolName,
-                arguments: args
-              }
-            })
+          if (!this.mcpClient) {
+            throw new Error('MCP client not available');
+          }
+
+          // Use SDK client convenience method
+          const result = await this.mcpClient.callTool({
+            name: toolName,
+            arguments: args
           });
 
-          if (!response.ok) {
-            throw new Error(`MCP server responded with ${response.status}: ${response.statusText}`);
-          }
-
-          // Parse SSE response
-          const text = await response.text();
-          const lines = text.split('\n');
-          let jsonData = null;
-          
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                jsonData = JSON.parse(line.slice(6));
-                break;
-              } catch (e) {
-                // Continue looking for valid JSON
-              }
-            }
-          }
-
-          if (!jsonData || jsonData.error) {
-            throw new Error(`MCP tool call failed: ${jsonData?.error?.message || 'Unknown error'}`);
-          }
-
-          return jsonData.result;
+          return result;
         } catch (error) {
           console.error(`❌ Error calling MCP tool ${toolName}:`, error);
           throw error;
@@ -223,6 +238,12 @@ export class AgentLoop {
       if (tools.length > 0) {
         requestParams.tools = tools;
         requestParams.tool_choice = 'auto';
+      }
+
+      // Log the system prompt being used for debugging
+      const systemPrompt = this.conversationHistory.find(msg => msg.role === 'system')?.content;
+      if (systemPrompt) {
+        console.log('🔧 System Prompt Preview:', systemPrompt.substring(0, 200) + '...');
       }
 
       const response = await this.openaiClient.chat.completions.create(requestParams);
@@ -322,6 +343,12 @@ export class AgentLoop {
         ...requestParams,
         stream: true as const,
       };
+
+      // Log the system prompt being used for debugging
+      const systemPrompt = this.conversationHistory.find(msg => msg.role === 'system')?.content;
+      if (systemPrompt) {
+        console.log('🔧 System Prompt Preview (Streaming):', systemPrompt.substring(0, 200) + '...');
+      }
       
       const stream = await this.openaiClient.chat.completions.create(streamParams);
       
@@ -491,55 +518,26 @@ export class AgentLoop {
    * Get tool description for OpenAI function calling
    */
   /**
-   * Fetch tool descriptions from the MCP server using tools/list
+   * Get tool descriptions from MCP server using SDK client convenience methods
    */
-  private async getToolDescriptionsFromMCP(mcpSessionId: string): Promise<void> {
+  private async getToolDescriptionsFromMCP(): Promise<void> {
     try {
-      console.log("🔍 Fetching tool descriptions from MCP server...");
+      console.log("🔍 Fetching tool descriptions from MCP server via SDK...");
       
-      const response = await fetch('http://localhost:8080/mcp', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json, text/event-stream',
-          'mcp-session-id': mcpSessionId
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: Math.random().toString(36),
-          method: 'tools/list',
-          params: {}
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`MCP server responded with ${response.status}: ${response.statusText}`);
+      if (!this.mcpClient) {
+        throw new Error('MCP client not initialized');
       }
 
-      // Parse SSE response
-      const text = await response.text();
-      const lines = text.split('\n');
-      let jsonData = null;
-      
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            jsonData = JSON.parse(line.slice(6));
-            break;
-          } catch (e) {
-            // Continue looking for valid JSON
-          }
-        }
-      }
+      // Add a small delay to ensure server is fully ready after connection
+      await new Promise(resolve => setTimeout(resolve, 100));
 
-      if (!jsonData || jsonData.error) {
-        throw new Error(`MCP tools/list failed: ${jsonData?.error?.message || 'Unknown error'}`);
-      }
+      // Use SDK client convenience method (should work after connection is established)
+      const result = await this.mcpClient.listTools();
 
       // Cache the tool descriptions
       this.mcpToolDescriptions.clear();
-      if (jsonData.result && jsonData.result.tools) {
-        for (const tool of jsonData.result.tools) {
+      if (result.tools) {
+        for (const tool of result.tools) {
           this.mcpToolDescriptions.set(tool.name, {
             name: tool.name,
             description: tool.description,
@@ -613,5 +611,28 @@ export class AgentLoop {
    */
   getRegisteredTools(): string[] {
     return Array.from(this.mcpTools.keys());
+  }
+
+  /**
+   * Get tool handler for testing (internal use)
+   */
+  getToolHandler(toolName: string): any {
+    return this.mcpTools.get(toolName);
+  }
+
+  /**
+   * Clean up MCP client connection
+   */
+  async cleanup(): Promise<void> {
+    if (this.mcpClient) {
+      try {
+        await this.mcpClient.close();
+        console.log('🔌 MCP client connection closed');
+      } catch (error) {
+        console.error('❌ Error closing MCP client:', error);
+      }
+      this.mcpClient = undefined;
+      this.mcpTransport = undefined;
+    }
   }
 }
