@@ -22,7 +22,7 @@ describe('Dynamic MCP Tool Discovery Tests', () => {
         deploymentName: 'test-deployment'
       },
       mcpServer: {
-        port: 8080,
+        port: 3000,
         name: 'test-server',
         version: '1.0.0'
       }
@@ -73,7 +73,7 @@ describe('Dynamic MCP Tool Discovery Tests', () => {
       await agentLoop.initializeMCPTools('test-session-id');
 
       // Verify fetch was called with correct parameters
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8080/mcp', {
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:3000/mcp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

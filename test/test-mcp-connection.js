@@ -6,7 +6,7 @@ import fetch from 'node-fetch';
 async function testMCPConnection() {
   console.log('🧪 Testing MCP connection...');
   
-  const mcpUrl = 'http://localhost:8080/mcp';
+  const mcpUrl = 'http://localhost:3000/mcp';
   
   try {
     console.log('📡 Sending initialization request...');

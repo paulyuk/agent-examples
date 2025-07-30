@@ -56,7 +56,7 @@ async function main() {
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => crypto.randomUUID(),
     enableDnsRebindingProtection: true,
-    allowedHosts: ['127.0.0.1', 'localhost', 'localhost:8080', '127.0.0.1:8080'],
+    allowedHosts: ['127.0.0.1', 'localhost', 'localhost:3000', '127.0.0.1:3000'],
   });
   
   await server.connect(transport);
@@ -71,8 +71,8 @@ async function main() {
     await transport.handleRequest(req, res);
   });
   
-  httpServer.listen(8080, () => {
-    console.log(`MCP Server running on http://localhost:8080/mcp`);
+  httpServer.listen(3000, () => {
+    console.log(`MCP Server running on http://localhost:3000/mcp`);
   });
 }
 ```
@@ -97,7 +97,7 @@ async function main() {
 
 1. **Human starts MCP server**: `npm run mcp-server`
 2. **Copilot tests CLI**: `npm run dev` 
-3. **MCP Inspector can connect**: Via HTTP transport at localhost:8080/mcp
+3. **MCP Inspector can connect**: Via HTTP transport at localhost:3000/mcp
 
 ### ⚠️ Session Management Rules
 - **Official SDK handles all session management automatically**
@@ -129,7 +129,7 @@ for (const line of lines) {
 ```typescript
 // ✅ CORRECT generic tool handler pattern
 const toolHandler = async (args: any) => {
-  const response = await fetch('http://localhost:8080/mcp', {
+  const response = await fetch('http://localhost:3000/mcp', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

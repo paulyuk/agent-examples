@@ -17,7 +17,7 @@ const config = {
     containerId: process.env.COSMOS_DB_CONTAINER_ID || 'sessions'
   },
   mcpServer: {
-    port: 8080
+    port: 3000
   },
   chainOfThought: false
 };
