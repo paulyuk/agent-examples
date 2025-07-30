@@ -21,7 +21,8 @@
     "test:quick": "node test/quick-test.mjs",
     "test:mcp-only": "node test/test-mcp-only.mjs",
     "test:cosmos-identity": "node test/test-cosmos-identity.mjs",
-    "demo": "node demo.js"
+    "demo": "node demo.js",
+    "demo:plan-execute": "node demo-plan-execute.js"
   },
   "keywords": [
     "azure",

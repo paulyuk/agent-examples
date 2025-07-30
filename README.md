@@ -5,6 +5,7 @@ A sophisticated TypeScript/Node.js implementation of an Azure OpenAI MCP (Model 
 ## Features
 
 - 🤖 **Azure OpenAI Integration** - Powered by OpenAI SDK v4.67.3 with Azure support
+- 🎯 **Plan-and-Execute Loop** - Advanced iterative planning mode optimized for GPT-4.1 mini
 - 🔧 **Dynamic MCP Tool Discovery** - Tools are discovered dynamically from MCP server (NO hardcoding)
 - 🛡️ **Enterprise Security** - Azure Identity integration with managed identity support
 - 📝 **Interactive CLI** - Rich console interface with command support
@@ -94,10 +95,50 @@ azure-openai-mcp-agent/
 # Terminal 1: Start MCP server
 npm run mcp-server
 
-# Terminal 2: Start CLI client
+# Terminal 2: Start CLI client (regular mode)
 npm run dev
+
+# Terminal 2: Start CLI client (plan-and-execute mode)
+npm run dev -- --plan-and-execute
+
 # or for watch mode
 npm run dev:watch
+```
+
+### Plan-and-Execute Mode
+
+The agent now includes an advanced **plan-and-execute loop** optimized for GPT-4.1 mini that breaks down complex tasks into actionable steps:
+
+```bash
+# Start in plan-and-execute mode
+npm run dev -- --plan-and-execute
+
+# Or toggle during runtime
+/planexec
+```
+
+**Key Features:**
+- 🎯 **Iterative Planning**: Breaks complex requests into step-by-step plans
+- 🔄 **Dynamic Execution**: Executes each step and observes results
+- 🛡️ **Safety Limits**: Configurable max iterations (default: 10)
+- 📊 **Structured Output**: Uses JSON mode for reliable plan parsing
+- 🔧 **Tool Integration**: Seamlessly integrates with existing MCP tools
+
+**Example Flow:**
+```
+User: "Create a complete Azure Function for processing uploads"
+
+🔄 Iteration 1:
+  💭 Thought: Breaking this into steps...
+  📋 Plan: [Research triggers, Find samples, Create code, Add security]
+  🔧 Action: Search for blob trigger samples
+
+🔄 Iteration 2:
+  📝 Observation: Found 3 blob trigger samples...
+  🔧 Action: Research security best practices
+
+🔄 Iteration 3:
+  ✅ Complete: Here's your complete upload function...
 ```
 
 ### Build and Run
@@ -108,6 +149,10 @@ npm start
 
 ### Run Demo
 ```bash
+# View plan-and-execute demo
+node demo-plan-execute.js
+
+# Run original demo
 npm run demo
 ```
 
@@ -120,13 +165,21 @@ Once the CLI starts, you can use these commands:
 - `/history` - Show conversation history
 - `/tools` - Show registered tools
 - `/streaming` - Toggle streaming mode on/off
+- `/planexec` - Toggle plan-and-execute mode on/off
 - `/session` - Show session information (ID, message count, etc.)
 - `/exit` - Exit the application
 
 ### Example Questions
 
+**Regular Mode:**
 - "How do I create a timer trigger in Azure Functions?"
 - "Show me a sample for timer trigger"
+- "What are the best practices for Azure Functions performance?"
+
+**Plan-and-Execute Mode (for complex tasks):**
+- "Create a complete microservice with Azure Functions, Cosmos DB, and authentication"
+- "Build a file processing pipeline with error handling and monitoring"
+- "Design and implement a serverless API with multiple endpoints"
 - "What are the best practices for Azure Functions performance?"
 - "Show me how to implement Durable Functions"
 - "How do I use Azure Functions with Cosmos DB?"
