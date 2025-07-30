@@ -12,6 +12,7 @@ export class CLIClient {
   private agent: AgentLoop;
   private rl: readline.Interface;
   private streamingEnabled: boolean = true;
+  private planAndExecuteMode: boolean = false;
   private sessionId: string;
   private static LAST_SESSION_FILE = path.resolve('.last_session');
   private static LAST_MCP_SESSION_FILE = path.resolve('.last_mcp_session');
@@ -22,6 +23,7 @@ export class CLIClient {
     let sessionId: string | undefined = undefined;
     let forceNewSession = false;
     let chainOfThought = true; // default ON
+    let planAndExecute = false; // default OFF
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '--session' && args[i + 1]) {
         sessionId = args[i + 1];
@@ -31,6 +33,10 @@ export class CLIClient {
       }
       if (args[i] === '--no-chain-of-thought') {
         chainOfThought = false;
+      }
+      if (args[i] === '--plan-and-execute') {
+        planAndExecute = true;
+        chainOfThought = false; // Disable chain of thought when using plan-and-execute
       }
     }
 
@@ -47,8 +53,10 @@ export class CLIClient {
       // Generate a new sessionId using uuid if not provided
       this.sessionId = crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
     }
-    // Set chainOfThought in config
+    // Set chainOfThought and planAndExecute in config
     config.chainOfThought = chainOfThought;
+    config.planAndExecute = planAndExecute;
+    this.planAndExecuteMode = planAndExecute;
     this.agent = new AgentLoop(config, this.sessionId);
     // this.mcpServer = new MCPServer(config.azureOpenAI, config.mcpServer);
 
@@ -128,7 +136,7 @@ export class CLIClient {
     console.log('🚀 Azure OpenAI MCP Agent Started!');
     console.log(`🆔 Session ID: ${this.agent.getSessionId()}`);
     console.log('💡 Ask me anything about Azure Functions development');
-    console.log('📝 Available commands: /help, /clear, /history, /tools, /streaming, /exit');
+    console.log('📝 Available commands: /help, /clear, /history, /tools, /streaming, /planexec, /exit');
     console.log('');
 
     // Initialize session (load from Cosmos DB if available)
@@ -165,7 +173,19 @@ export class CLIClient {
       // Process user message through agent
       console.log('🤔 Thinking...');
       try {
-        if (this.streamingEnabled) {
+        if (this.planAndExecuteMode) {
+          // Use plan-and-execute mode
+          console.log('📋 Using Plan-and-Execute mode...');
+          const response = await this.agent.processMessageWithPlan(trimmedInput);
+          if (response.error) {
+            console.log(`❌ Error: ${response.error}`);
+          } else {
+            console.log(`🤖 ${response.message}`);
+            if (response.toolCalls && response.toolCalls.length > 0) {
+              console.log(`🔧 Used tools: ${response.toolCalls.map(tc => tc.name).join(', ')}`);
+            }
+          }
+        } else if (this.streamingEnabled) {
           // Use streaming response
           process.stdout.write('🤖 ');
           const streamGenerator = this.agent.processMessageStream(trimmedInput);
@@ -249,6 +269,10 @@ export class CLIClient {
         this.toggleStreaming();
         break;
 
+      case '/planexec':
+        this.togglePlanAndExecute();
+        break;
+
       case '/session':
         this.showSessionInfo();
         break;
@@ -274,6 +298,7 @@ export class CLIClient {
     console.log('  /history   - Show conversation history');
     console.log('  /tools     - Show registered MCP tools');
     console.log('  /streaming - Toggle streaming mode on/off');
+    console.log('  /planexec  - Toggle plan-and-execute mode on/off');
     console.log('  /session   - Show session information');
     console.log('  /exit      - Exit the application');
     console.log('');
@@ -281,6 +306,7 @@ export class CLIClient {
     console.log('  • Ask about Azure Functions development');
     console.log('  • Request code examples and best practices');
     console.log('  • Use streaming mode for real-time responses');
+    console.log('  • Use plan-and-execute mode for complex multi-step tasks');
     console.log('  • Your conversation history is persisted across sessions');
   }
 
@@ -328,6 +354,21 @@ export class CLIClient {
   }
 
   /**
+   * Toggle plan-and-execute mode
+   */
+  private togglePlanAndExecute(): void {
+    this.planAndExecuteMode = !this.planAndExecuteMode;
+    // When enabling plan-and-execute, disable streaming as they're mutually exclusive
+    if (this.planAndExecuteMode) {
+      this.streamingEnabled = false;
+    }
+    console.log(`📋 Plan-and-Execute mode ${this.planAndExecuteMode ? 'enabled' : 'disabled'}`);
+    if (this.planAndExecuteMode) {
+      console.log('💡 Plan-and-Execute mode will break down complex tasks into steps');
+    }
+  }
+
+  /**
    * Show session information
    */
   private showSessionInfo(): void {
@@ -337,6 +378,7 @@ export class CLIClient {
     console.log(`  🆔 Session ID: ${sessionId}`);
     console.log(`  💬 Messages: ${history.length}`);
     console.log(`  🔄 Streaming: ${this.streamingEnabled ? 'enabled' : 'disabled'}`);
+    console.log(`  📋 Plan-Execute: ${this.planAndExecuteMode ? 'enabled' : 'disabled'}`);
     console.log(`  🔧 Tools: ${this.agent.getRegisteredTools().length}`);
   }
 

@@ -65,4 +65,34 @@ export interface AgentLoopConfig {
   cosmos?: CosmosConfig;
   systemPrompt?: string;
   chainOfThought?: boolean; // Enable chain of thought mode
+  planAndExecute?: boolean; // Enable plan-and-execute mode
+  maxIterations?: number; // Maximum iterations for plan-and-execute mode (default: 10)
+}
+
+// Plan and Execute Agent Types
+export interface AgentState {
+  taskComplete: boolean;
+  plan: string[];
+  currentStepIndex: number;
+  scratchpad: string;
+  maxIterations: number;
+}
+
+export interface AgentThoughtAndPlan {
+  thought: string;
+  plan: string[];
+  tool_calls?: ToolCall[];
+  is_task_complete: boolean;
+  final_answer?: string;
+}
+
+export interface ToolCall {
+  tool_name: string;
+  arguments: Record<string, any>;
+}
+
+export interface StepResult {
+  observation: string;
+  isCompletion?: boolean;
+  finalAnswer?: string;
 }

@@ -1,5 +1,8 @@
 import OpenAI from 'openai';
 import { v4 as uuidv4 } from 'uuid';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
@@ -7,6 +10,9 @@ import {
   AgentResponse,
   MCPToolCall,
   AgentLoopConfig,
+  AgentState,
+  AgentThoughtAndPlan,
+  StepResult,
 } from '../types/index.js';
 import { CosmosService } from '../services/cosmos.js';
 
@@ -281,6 +287,179 @@ export class AgentLoop {
       console.error('❌ Error processing message:', error);
       return {
         message: 'Sorry, I encountered an error while processing your message.',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        isStreaming: false,
+      };
+    }
+  }
+
+  /**
+   * Process a user message using plan-and-execute loop pattern
+   * Optimized for GPT-4.1 mini with iterative planning and execution
+   */
+  async processMessageWithPlan(userMessage: string): Promise<AgentResponse> {
+    try {
+      const maxIterations = this.config.maxIterations || 10;
+      let conversationHistory: ChatMessage[] = [...this.conversationHistory];
+      let agentState: AgentState = {
+        taskComplete: false,
+        plan: [],
+        currentStepIndex: 0,
+        scratchpad: "",
+        maxIterations: maxIterations
+      };
+
+      // Add initial user message to history
+      const userChatMessage: ChatMessage = {
+        role: 'user',
+        content: userMessage,
+        timestamp: new Date(),
+        sessionId: this.sessionId,
+      };
+      conversationHistory.push(userChatMessage);
+      this.conversationHistory.push(userChatMessage);
+      await this.saveMessageToCosmos(userChatMessage);
+
+      let iterationCount = 0;
+      while (!agentState.taskComplete && iterationCount < maxIterations) {
+        console.log(`🔄 Plan-Execute Loop Iteration ${iterationCount + 1}/${maxIterations}`);
+
+        // Step 1: Agent thinks/plans
+        const agentThoughtAndPlan = await this.getAgentThoughtAndPlan(conversationHistory, userMessage);
+        agentState.plan = agentThoughtAndPlan.plan;
+        agentState.scratchpad = agentThoughtAndPlan.thought;
+
+        // Add agent's thought/plan to history
+        const planMessage = `Thought: ${agentThoughtAndPlan.thought}\nPlan: ${agentState.plan.map((step, i) => `${i+1}. ${step}`).join('\n')}`;
+        const assistantPlanMessage: ChatMessage = {
+          role: 'assistant',
+          content: planMessage,
+          timestamp: new Date(),
+          sessionId: this.sessionId,
+        };
+        conversationHistory.push(assistantPlanMessage);
+        this.conversationHistory.push(assistantPlanMessage);
+        await this.saveMessageToCosmos(assistantPlanMessage);
+
+        // Check if agent indicates task is complete
+        if (agentThoughtAndPlan.is_task_complete) {
+          agentState.taskComplete = true;
+          const finalMessage = agentThoughtAndPlan.final_answer || 'Task completed successfully.';
+          const completionMessage: ChatMessage = {
+            role: 'assistant',
+            content: `Task completed: ${finalMessage}`,
+            timestamp: new Date(),
+            sessionId: this.sessionId,
+          };
+          conversationHistory.push(completionMessage);
+          this.conversationHistory.push(completionMessage);
+          await this.saveMessageToCosmos(completionMessage);
+          
+          return {
+            message: finalMessage,
+            isStreaming: false,
+          };
+        }
+
+        if (agentState.plan.length === 0) {
+          // No plan, might be done or stuck
+          agentState.taskComplete = true;
+          const errorMessage = "Agent completed (no further plan generated).";
+          const errorChatMessage: ChatMessage = {
+            role: 'assistant',
+            content: errorMessage,
+            timestamp: new Date(),
+            sessionId: this.sessionId,
+          };
+          conversationHistory.push(errorChatMessage);
+          this.conversationHistory.push(errorChatMessage);
+          await this.saveMessageToCosmos(errorChatMessage);
+          break;
+        }
+
+        // Step 2: Execute tool calls if present
+        if (agentThoughtAndPlan.tool_calls && agentThoughtAndPlan.tool_calls.length > 0) {
+          const currentStep = agentState.plan[agentState.currentStepIndex] || 'Execute tool calls';
+          const executingMessage: ChatMessage = {
+            role: 'assistant',
+            content: `Executing step ${agentState.currentStepIndex + 1}: ${currentStep}`,
+            timestamp: new Date(),
+            sessionId: this.sessionId,
+          };
+          conversationHistory.push(executingMessage);
+          this.conversationHistory.push(executingMessage);
+          await this.saveMessageToCosmos(executingMessage);
+
+          const stepResult = await this.executeToolCalls(agentThoughtAndPlan.tool_calls);
+          agentState.scratchpad += `\nObservation from step ${agentState.currentStepIndex + 1}: ${stepResult.observation}`;
+          
+          // Add observation to history
+          const observationMessage: ChatMessage = {
+            role: 'assistant', // Tool output as assistant message for context
+            content: `Observation: ${stepResult.observation}`,
+            timestamp: new Date(),
+            sessionId: this.sessionId,
+          };
+          conversationHistory.push(observationMessage);
+          this.conversationHistory.push(observationMessage);
+          await this.saveMessageToCosmos(observationMessage);
+
+          // Check if this step completed the task
+          if (stepResult.isCompletion) {
+            agentState.taskComplete = true;
+            const completionMessage: ChatMessage = {
+              role: 'assistant',
+              content: `Task completed: ${stepResult.finalAnswer}`,
+              timestamp: new Date(),
+              sessionId: this.sessionId,
+            };
+            conversationHistory.push(completionMessage);
+            this.conversationHistory.push(completionMessage);
+            await this.saveMessageToCosmos(completionMessage);
+            
+            return {
+              message: stepResult.finalAnswer || 'Task completed successfully.',
+              isStreaming: false,
+            };
+          }
+
+          agentState.currentStepIndex++;
+        }
+
+        iterationCount++;
+        
+        // Safety check for max iterations
+        if (iterationCount >= maxIterations) {
+          agentState.taskComplete = true;
+          const maxIterMessage = `Agent reached maximum iterations (${maxIterations}) without completing the task.`;
+          const maxIterChatMessage: ChatMessage = {
+            role: 'assistant',
+            content: maxIterMessage,
+            timestamp: new Date(),
+            sessionId: this.sessionId,
+          };
+          conversationHistory.push(maxIterChatMessage);
+          this.conversationHistory.push(maxIterChatMessage);
+          await this.saveMessageToCosmos(maxIterChatMessage);
+          
+          return {
+            message: maxIterMessage,
+            isStreaming: false,
+          };
+        }
+      }
+
+      // Final fallback response
+      const finalResponse = agentState.scratchpad || 'Task processing completed.';
+      return {
+        message: finalResponse,
+        isStreaming: false,
+      };
+
+    } catch (error) {
+      console.error('❌ Error in plan-execute loop:', error);
+      return {
+        message: 'Sorry, I encountered an error during plan execution.',
         error: error instanceof Error ? error.message : 'Unknown error',
         isStreaming: false,
       };
@@ -634,5 +813,164 @@ export class AgentLoop {
       this.mcpClient = undefined;
       this.mcpTransport = undefined;
     }
+  }
+
+  /**
+   * Get agent thought and plan using structured JSON output for plan-and-execute mode
+   */
+  private async getAgentThoughtAndPlan(conversationHistory: ChatMessage[], userMessage: string): Promise<AgentThoughtAndPlan> {
+    try {
+      // Get the current directory to load the system prompt template
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      const systemPromptPath = join(__dirname, '..', '..', 'system_prompt_plan_execute.md');
+      
+      let systemPromptTemplate: string;
+      try {
+        systemPromptTemplate = readFileSync(systemPromptPath, 'utf8');
+      } catch (readError) {
+        console.warn('⚠️ Could not read plan-execute system prompt, using fallback');
+        systemPromptTemplate = this.getFallbackPlanExecutePrompt();
+      }
+      
+      const fullSystemPrompt = systemPromptTemplate.replace('{{USER_MESSAGE}}', userMessage);
+
+      // Prepare tools for OpenAI function calling
+      const tools = Array.from(this.mcpTools.keys()).map(toolName => ({
+        type: 'function' as const,
+        function: this.getToolDescription(toolName),
+      }));
+
+      const messages = [
+        { role: 'system' as const, content: fullSystemPrompt },
+        ...conversationHistory.map(msg => ({
+          role: msg.role as 'system' | 'user' | 'assistant',
+          content: msg.content,
+        }))
+      ];
+
+      const requestParams: any = {
+        model: this.config.azureOpenAI.deploymentName,
+        messages: messages,
+        response_format: { type: "json_object" }, // Crucial for structured output
+        temperature: 0.7,
+        max_tokens: 1500,
+      };
+
+      if (tools.length > 0) {
+        requestParams.tools = tools;
+        requestParams.tool_choice = 'auto';
+      }
+
+      const completion = await this.openaiClient.chat.completions.create(requestParams);
+      const content = completion.choices[0]?.message?.content;
+      
+      if (!content) {
+        throw new Error("No response content from OpenAI");
+      }
+
+      let agentResponse: AgentThoughtAndPlan;
+      try {
+        agentResponse = JSON.parse(content);
+      } catch (parseError) {
+        console.error("Failed to parse agent JSON response:", parseError);
+        // Fallback response structure
+        agentResponse = {
+          thought: "Error parsing agent response.",
+          plan: [],
+          tool_calls: [],
+          is_task_complete: false
+        };
+      }
+
+      // Validate the response against expected format
+      if (!agentResponse.thought || !Array.isArray(agentResponse.plan)) {
+        throw new Error("Invalid agent response format from LLM.");
+      }
+
+      // Convert OpenAI tool calls if present 
+      const toolCalls = completion.choices[0]?.message?.tool_calls;
+      if (toolCalls && toolCalls.length > 0) {
+        agentResponse.tool_calls = toolCalls.map(tc => ({
+          tool_name: tc.function.name,
+          arguments: JSON.parse(tc.function.arguments || '{}')
+        }));
+      }
+
+      return agentResponse;
+
+    } catch (error) {
+      console.error("Error getting agent thought and plan from OpenAI:", error);
+      // Return error fallback
+      return {
+        thought: "Error generating plan.",
+        plan: [],
+        tool_calls: [],
+        is_task_complete: false
+      };
+    }
+  }
+
+  /**
+   * Execute tool calls for plan-and-execute mode
+   */
+  private async executeToolCalls(toolCalls: any[]): Promise<StepResult> {
+    let allObservations = '';
+    let isCompletion = false;
+    let finalAnswer = '';
+
+    for (const toolCall of toolCalls) {
+      const toolName = toolCall.tool_name;
+      const toolArgs = toolCall.arguments;
+
+      // Execute the MCP tool
+      const toolHandler = this.mcpTools.get(toolName);
+      if (toolHandler) {
+        try {
+          console.log(`🔧 Executing tool: ${toolName} with args:`, JSON.stringify(toolArgs, null, 2));
+          const result = await toolHandler(toolArgs);
+          
+          // Extract text content from the result
+          const resultText = result.content?.[0]?.text || JSON.stringify(result);
+          allObservations += `Tool ${toolName} result: ${resultText}\n`;
+
+          // Check if this is a completion tool call
+          if (toolName === 'final_answer' || toolCall.tool_name === 'final_answer') {
+            isCompletion = true;
+            finalAnswer = toolArgs.answer || resultText;
+          }
+
+        } catch (error) {
+          console.error(`Error executing tool ${toolName}:`, error);
+          allObservations += `Tool ${toolName} error: ${error instanceof Error ? error.message : 'Unknown error'}\n`;
+        }
+      } else {
+        allObservations += `Tool ${toolName} not found\n`;
+      }
+    }
+
+    return {
+      observation: allObservations || 'No tool output generated.',
+      isCompletion,
+      finalAnswer
+    };
+  }
+
+  /**
+   * Fallback system prompt for plan-and-execute mode when file cannot be read
+   */
+  private getFallbackPlanExecutePrompt(): string {
+    return `You are a plan-and-execute AI agent. Break down the user's request into actionable steps and execute them iteratively.
+
+**Response Format (JSON):**
+{
+  "thought": "Your reasoning about the current situation",
+  "plan": ["Step 1: action", "Step 2: action"],
+  "tool_calls": [{"tool_name": "name", "arguments": {}}],
+  "is_task_complete": false,
+  "final_answer": "Only if task complete"
+}
+
+Available tools: Azure Functions tools via MCP. Think step-by-step and provide actionable plans.`;
   }
 }
