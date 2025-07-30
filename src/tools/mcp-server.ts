@@ -379,7 +379,7 @@ app.delete('/mcp', async (_req: Request, res: Response) => {
 });
 
 // Start the server - Official Anthropic pattern
-const PORT = 8080;
+const PORT = process.env.MCP_SERVER_PORT ? parseInt(process.env.MCP_SERVER_PORT) : 3000;
 app.listen(PORT, () => {
   console.log(`MCP Azure Functions Sample Finder Server listening on port ${PORT}`);
 });

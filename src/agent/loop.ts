@@ -125,7 +125,8 @@ export class AgentLoop {
       // For now, always create fresh connections to ensure stability
       // TODO: Implement session reuse once basic connection is stable
       console.log('🔄 Creating fresh transport connection');
-      const mcpUrl = new URL('http://localhost:8080/mcp');
+      const mcpServerUrl = process.env.MCP_SERVER_URL || 'http://localhost:3000/mcp';
+      const mcpUrl = new URL(mcpServerUrl);
       this.mcpTransport = new StreamableHTTPClientTransport(mcpUrl);
 
       // Connect to the MCP server (this handles initialization automatically)
