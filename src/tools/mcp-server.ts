@@ -8,8 +8,7 @@ import express, { Request, Response } from 'express';
 // Tool schemas using Zod (matching official MCP SDK pattern)
 const GET_AZURE_FUNCTIONS_SAMPLES_SCHEMA = {
   query: z.string().describe("Search query for Azure Functions samples").optional(),
-  language: z.string().describe("Programming language filter (e.g., 'dotnetCsharp', 'python', 'javascript', 'typescript', 'nodejs', 'java', 'powershell')").optional(),
-  category: z.string().describe("Category filter (e.g., 'http', 'timer', 'blob', 'database', 'ai', 'event')").optional()
+  language: z.string().describe("Programming language filter (e.g., 'dotnetCsharp', 'python', 'javascript', 'typescript', 'nodejs', 'java', 'powershell')").optional()
 };
 
 const GET_GITHUB_SOURCE_CODE_SCHEMA = {
@@ -38,7 +37,7 @@ type Gallery = {
 };
 
 // Helper to fetch and parse the Awesome AZD Gallery JSON
-async function fetchAwesomeAzdGallery(query?: string, language?: string, category?: string): Promise<Gallery> {
+async function fetchAwesomeAzdGallery(query?: string, language?: string): Promise<Gallery> {
   const url = "https://raw.githubusercontent.com/Azure/awesome-azd/main/website/static/templates.json";
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch gallery: ${res.status}`);
@@ -75,14 +74,6 @@ async function fetchAwesomeAzdGallery(query?: string, language?: string, categor
     const languageLower = language.toLowerCase();
     filteredSamples = filteredSamples.filter(sample => 
       sample.languages.some(lang => lang.toLowerCase().includes(languageLower))
-    );
-  }
-  
-  if (category) {
-    const categoryLower = category.toLowerCase();
-    filteredSamples = filteredSamples.filter(sample => 
-      sample.tags.some(tag => tag.toLowerCase().includes(categoryLower)) ||
-      sample.azureServices.some(service => service.toLowerCase().includes(categoryLower))
     );
   }
   
@@ -215,13 +206,12 @@ const getServer = () => {
     "get_azure_functions_samples",
     "Search and retrieve Azure Functions samples from the Awesome AZD Gallery",
     GET_AZURE_FUNCTIONS_SAMPLES_SCHEMA,
-    async ({ query, language, category }) => {
+    async ({ query, language }) => {
       // Convert empty strings to undefined for filtering
       const cleanQuery = query && query.trim() ? query.trim() : undefined;
       const cleanLanguage = language && language.trim() ? language.trim() : undefined;
-      const cleanCategory = category && category.trim() ? category.trim() : undefined;
       
-      const gallery = await fetchAwesomeAzdGallery(cleanQuery, cleanLanguage, cleanCategory);
+      const gallery = await fetchAwesomeAzdGallery(cleanQuery, cleanLanguage);
       
       return {
         content: [
@@ -230,7 +220,6 @@ const getServer = () => {
             text: JSON.stringify({
               query: cleanQuery || "all",
               language: cleanLanguage || "all",
-              category: cleanCategory || "all",
               count: gallery.samples.length,
               samples: gallery.samples
             }, null, 2)
