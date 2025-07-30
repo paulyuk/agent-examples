@@ -60,13 +60,13 @@ export class AgentLoop {
     if (this.cosmosService) {
       const existingSession = await this.cosmosService.loadSession(this.sessionId, true);
       if (existingSession) {
-        this.conversationHistory = existingSession.messages;
-        console.log(`📂 Loaded ${this.conversationHistory.length} messages from session ${this.sessionId}`);
-        return;
+        // Load existing conversation but filter out old system prompts
+        this.conversationHistory = existingSession.messages.filter(msg => msg.role !== 'system');
+        console.log(`📂 Loaded ${this.conversationHistory.length} messages from session ${this.sessionId} (excluding system prompt)`);
       }
     }
 
-    // Set up system prompt if provided and no existing session
+    // Always set up the current system prompt from config
     if (this.config.systemPrompt) {
       const systemMessage: ChatMessage = {
         role: 'system',
@@ -74,7 +74,8 @@ export class AgentLoop {
         timestamp: new Date(),
         sessionId: this.sessionId,
       };
-      this.conversationHistory.push(systemMessage);
+      // Insert at the beginning to ensure it's first
+      this.conversationHistory.unshift(systemMessage);
       await this.saveMessageToCosmos(systemMessage, true); // Print on session creation
     }
   }
@@ -239,6 +240,12 @@ export class AgentLoop {
         requestParams.tool_choice = 'auto';
       }
 
+      // Log the system prompt being used for debugging
+      const systemPrompt = this.conversationHistory.find(msg => msg.role === 'system')?.content;
+      if (systemPrompt) {
+        console.log('🔧 System Prompt Preview:', systemPrompt.substring(0, 200) + '...');
+      }
+
       const response = await this.openaiClient.chat.completions.create(requestParams);
 
       const choice = response.choices[0];
@@ -336,6 +343,12 @@ export class AgentLoop {
         ...requestParams,
         stream: true as const,
       };
+
+      // Log the system prompt being used for debugging
+      const systemPrompt = this.conversationHistory.find(msg => msg.role === 'system')?.content;
+      if (systemPrompt) {
+        console.log('🔧 System Prompt Preview (Streaming):', systemPrompt.substring(0, 200) + '...');
+      }
       
       const stream = await this.openaiClient.chat.completions.create(streamParams);
       
