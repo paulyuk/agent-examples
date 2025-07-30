@@ -1,8 +1,8 @@
 import * as readline from 'readline';
-import { AgentLoop } from '../agent/loop.js';
-import { AgentLoopConfig } from '../types/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { AgentLoop } from '../agent/loop.js';
+import { AgentLoopConfig } from '../types/index.js';
 
 /**
  * Interactive CLI client for the Azure OpenAI MCP Agent
@@ -14,6 +14,7 @@ export class CLIClient {
   private streamingEnabled: boolean = true;
   private sessionId: string;
   private static LAST_SESSION_FILE = path.resolve('.last_session');
+  private static LAST_MCP_SESSION_FILE = path.resolve('.last_mcp_session');
 
   constructor(config: AgentLoopConfig) {
     // Parse CLI args for session control and chain of thought
@@ -61,28 +62,62 @@ export class CLIClient {
     // Note: setupMCPTools is now async and will be called in start()
   }
 
-  /**
+    /**
    * Setup MCP tools integration with the agent
    */
   private async setupMCPTools(): Promise<void> {
-    // Tools will be registered dynamically after MCP server discovery
-    console.log("🔧 MCP tools will be registered dynamically after server discovery");
+    console.log("🔧 Setting up MCP tools with session reuse...");
     
-    // Initialize MCP tools by fetching their descriptions from the server
-    // The agent loop will handle SDK client connection internally
+    // First, try to load any existing MCP session ID for reuse
+    let mcpSessionId = this.loadLastMCPSession();
+    if (!mcpSessionId) {
+      // For new connections, use a derivation of agent session ID or 'initial'
+      mcpSessionId = this.sessionId ? `mcp-${this.sessionId}` : 'initial';
+    } else {
+      console.log(`🔄 Attempting to reuse MCP session: ${mcpSessionId}`);
+    }
+    
     try {
       console.log("🔧 Initializing MCP tools...");
-      // Pass empty string since SDK client doesn't use session IDs
-      await this.agent.initializeMCPTools("");
+      await this.agent.initializeMCPTools(mcpSessionId);
       console.log("✅ MCP tools initialized successfully");
       
-      // Register all discovered tools dynamically
-      console.log("🔧 Registering discovered MCP tools...");
-      this.agent.registerDiscoveredMCPTools("");
-      console.log("✅ MCP tools registered successfully");
+      // Store the actual MCP session ID for future reuse
+      const actualMCPSessionId = this.agent.getMCPSessionId();
+      if (actualMCPSessionId) {
+        this.saveLastMCPSession(actualMCPSessionId);
+        console.log(`📝 MCP session ID saved for reuse: ${actualMCPSessionId}`);
+      }
+      
     } catch (error) {
       console.error("❌ Failed to initialize MCP tools:", error);
       console.log("⚠️  Continuing without MCP tools...");
+    }
+  }
+
+  /**
+   * Load the last MCP session ID from file
+   */
+  private loadLastMCPSession(): string | undefined {
+    try {
+      if (fs.existsSync(CLIClient.LAST_MCP_SESSION_FILE)) {
+        const lastMCPSession = fs.readFileSync(CLIClient.LAST_MCP_SESSION_FILE, 'utf-8').trim();
+        return lastMCPSession || undefined;
+      }
+    } catch (error) {
+      console.log('No previous MCP session found, will create new one');
+    }
+    return undefined;
+  }
+
+  /**
+   * Save the MCP session ID to file for future reuse
+   */
+  private saveLastMCPSession(mcpSessionId: string): void {
+    try {
+      fs.writeFileSync(CLIClient.LAST_MCP_SESSION_FILE, mcpSessionId, 'utf-8');
+    } catch (error) {
+      console.warn('Failed to save MCP session ID:', error);
     }
   }
 

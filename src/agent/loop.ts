@@ -21,6 +21,7 @@ export class AgentLoop {
   private mcpTools: Map<string, any> = new Map();
   private mcpToolDescriptions: Map<string, any> = new Map(); // Cache for MCP tool descriptions
   private sessionId: string;
+  private mcpSessionId?: string; // Session ID for MCP connection reuse
   private cosmosService?: CosmosService;
   private mcpClient?: Client | undefined;
   private mcpTransport?: StreamableHTTPClientTransport | undefined;
@@ -84,6 +85,13 @@ export class AgentLoop {
   getSessionId(): string {
     return this.sessionId;
   }
+
+  /**
+   * Get the current MCP session ID for connection reuse
+   */
+  getMCPSessionId(): string | undefined {
+    return this.mcpSessionId;
+  }
   /**
    * Save message to Cosmos DB if service is available
    */
@@ -106,23 +114,33 @@ export class AgentLoop {
    */
   async initializeMCPTools(mcpSessionId: string): Promise<void> {
     try {
-      // Note: mcpSessionId kept for API compatibility but not used with SDK client
       console.log(`🔗 Initializing MCP tools via SDK (session: ${mcpSessionId})`);
       
-      // Create MCP client with StreamableHTTPClientTransport
-      const mcpUrl = new URL('http://localhost:8080/mcp');
-      this.mcpTransport = new StreamableHTTPClientTransport(mcpUrl);
-      
+      // Create MCP client following official example pattern
       this.mcpClient = new Client({
         name: 'azure-functions-cli',
         version: '1.0.0'
       });
 
-      // Connect to the MCP server - cast to Transport as the SDK type-checking is too strict
+      // For now, always create fresh connections to ensure stability
+      // TODO: Implement session reuse once basic connection is stable
+      console.log('🔄 Creating fresh transport connection');
+      const mcpUrl = new URL('http://localhost:8080/mcp');
+      this.mcpTransport = new StreamableHTTPClientTransport(mcpUrl);
+
+      // Connect to the MCP server (this handles initialization automatically)
       await this.mcpClient.connect(this.mcpTransport as any);
-      console.log('🔗 MCP client connected via SDK');
+      
+      // Get the actual session ID from transport after connection
+      if (this.mcpTransport?.sessionId) {
+        this.mcpSessionId = this.mcpTransport.sessionId;
+        console.log('✅ MCP client connected via SDK, session ID:', this.mcpSessionId);
+      } else {
+        console.log('✅ MCP client connected via SDK (no session ID)');
+      }
 
       await this.getToolDescriptionsFromMCP();
+      this.registerDiscoveredMCPTools(this.mcpSessionId || mcpSessionId);
       console.log(`🚀 MCP tools initialized with ${this.mcpToolDescriptions.size} tool descriptions`);
     } catch (error) {
       console.error('❌ Failed to initialize MCP tools:', error);
@@ -151,7 +169,7 @@ export class AgentLoop {
             throw new Error('MCP client not available');
           }
 
-          // Use SDK client to call the tool (replaces manual tools/call)
+          // Use SDK client convenience method
           const result = await this.mcpClient.callTool({
             name: toolName,
             arguments: args
@@ -486,11 +504,7 @@ export class AgentLoop {
    * Get tool description for OpenAI function calling
    */
   /**
-   * Fetch tool descriptions from the MCP server using tools/list
-   */
-  /**
-   * Fetch tool descriptions from the MCP server using SDK client
-   * Replaces manual tools/list call with SDK listTools()
+   * Get tool descriptions from MCP server using SDK client convenience methods
    */
   private async getToolDescriptionsFromMCP(): Promise<void> {
     try {
@@ -500,7 +514,10 @@ export class AgentLoop {
         throw new Error('MCP client not initialized');
       }
 
-      // Use SDK client to list tools (replaces manual tools/list)
+      // Add a small delay to ensure server is fully ready after connection
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Use SDK client convenience method (should work after connection is established)
       const result = await this.mcpClient.listTools();
 
       // Cache the tool descriptions

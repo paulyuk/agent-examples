@@ -2,7 +2,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import fetch from "node-fetch";
-import crypto from "crypto";
+import express, { Request, Response } from 'express';
+
+// Tool schemas using Zod (matching official MCP SDK pattern)
+const GET_AZURE_FUNCTIONS_SAMPLES_SCHEMA = {
+  query: z.string().describe("Search query for Azure Functions samples").optional(),
+  language: z.string().describe("Programming language filter (e.g., 'javascript', 'python', 'csharp')").optional(),
+  category: z.string().describe("Category filter (e.g., 'http', 'timer', 'blob')").optional()
+};
 
 // Type for a sample in the gallery
 type GallerySample = {
@@ -24,7 +31,7 @@ type Gallery = {
 };
 
 // Helper to fetch and parse the Awesome AZD Gallery JSON
-async function fetchAwesomeAzdGallery(): Promise<Gallery> {
+async function fetchAwesomeAzdGallery(query?: string, language?: string, category?: string): Promise<Gallery> {
   const url = "https://raw.githubusercontent.com/Azure/awesome-azd/main/website/static/templates.json";
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch gallery: ${res.status}`);
@@ -43,135 +50,147 @@ async function fetchAwesomeAzdGallery(): Promise<Gallery> {
     id: s.id,
     languages: Array.isArray(s.languages) ? s.languages : [],
   }));
-    // Filter samples to only those where azureServices contains 'functions'
-  const filteredSamples = samples.filter(s => Array.isArray(s.azureServices) && s.azureServices.includes("functions"));
+  
+  // Filter samples to only those where azureServices contains 'functions'
+  let filteredSamples = samples.filter(s => Array.isArray(s.azureServices) && s.azureServices.includes("functions"));
+  
+  // Apply additional filters if provided
+  if (query) {
+    const queryLower = query.toLowerCase();
+    filteredSamples = filteredSamples.filter(sample => 
+      sample.title.toLowerCase().includes(queryLower) ||
+      sample.description.toLowerCase().includes(queryLower) ||
+      sample.tags.some(tag => tag.toLowerCase().includes(queryLower))
+    );
+  }
+  
+  if (language) {
+    const languageLower = language.toLowerCase();
+    filteredSamples = filteredSamples.filter(sample => 
+      sample.languages.some(lang => lang.toLowerCase().includes(languageLower))
+    );
+  }
+  
+  if (category) {
+    const categoryLower = category.toLowerCase();
+    filteredSamples = filteredSamples.filter(sample => 
+      sample.tags.some(tag => tag.toLowerCase().includes(categoryLower)) ||
+      sample.azureServices.some(service => service.toLowerCase().includes(categoryLower))
+    );
+  }
+  
   const gallery: Gallery = { samples: filteredSamples };
   return gallery;
 }
 
-const server = new McpServer({
-  name: "azure-functions-sample-finder",
-  version: "1.0.0"
-});
+// Function to create and configure the MCP server (stateless approach from official example)
+const getServer = () => {
+  const server = new McpServer({
+    name: "azure-functions-sample-finder",
+    version: "1.0.0",
+  }, { 
+    capabilities: { 
+      logging: {} 
+    } 
+  });
 
-// Register a resource for the Awesome AZD Gallery
-server.registerResource(
-  "awesome-azd-gallery-functions",
-  "azd://gallery",
-  {
-    title: "Awesome AZD Gallery",
-    description: "Official Microsoft Azure Developer (AZD) sample gallery filtered by Azure Functions"
-  },
-  async () => {
-    const gallery = await fetchAwesomeAzdGallery();
-    return {
-      contents: [{
-        uri: "azd://gallery",
-        text: JSON.stringify(gallery, null, 2),
-        mimeType: "application/json"
-      }]
-    };
-  }
-);
-
-// Register a tool to search/filter the gallery
-server.registerTool(
-  "find-azfunc-samples",
-  {
-    title: "Find Azure Functions Samples",
-    description: "Search the Awesome AZD Gallery for Azure Functions samples by query, author, or Azure service.",
-    inputSchema: {
-      query: z.string().optional(),
-      question: z.string().optional(),
-      context: z.string().optional(),
-      author: z.string().optional(),
-      azureService: z.string().optional()
-    }
-  },
-  async (params: any) => {
-    // Require at least one of query or question
-    if (!params.query && !params.question) {
+  // Register the Azure Functions samples tool
+  server.tool(
+    "get_azure_functions_samples",
+    "Search and retrieve Azure Functions samples from the Awesome AZD Gallery",
+    GET_AZURE_FUNCTIONS_SAMPLES_SCHEMA,
+    async ({ query, language, category }) => {
+      // Convert empty strings to undefined for filtering
+      const cleanQuery = query && query.trim() ? query.trim() : undefined;
+      const cleanLanguage = language && language.trim() ? language.trim() : undefined;
+      const cleanCategory = category && category.trim() ? category.trim() : undefined;
+      
+      const gallery = await fetchAwesomeAzdGallery(cleanQuery, cleanLanguage, cleanCategory);
+      
       return {
-        content: [{
-          type: "text",
-          text: "Error: At least one of 'query' or 'question' is required."
-        }]
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              query: cleanQuery || "all",
+              language: cleanLanguage || "all",
+              category: cleanCategory || "all",
+              count: gallery.samples.length,
+              samples: gallery.samples
+            }, null, 2)
+          }
+        ]
       };
     }
-    const query = params.query || params.question || "";
-    const author = params.author;
-    const azureService = params.azureService;
-    const gallery: Gallery = await fetchAwesomeAzdGallery();
-    const results = gallery.samples.filter((s: GallerySample) => {
-      const matchesQuery = !query || s.title.toLowerCase().includes(query.toLowerCase()) || (s.description && s.description.toLowerCase().includes(query.toLowerCase()));
-      const matchesAuthor = !author || (s.author && s.author.toLowerCase().includes(author.toLowerCase()));
-      const matchesService = !azureService || (s.azureServices && s.azureServices.map(v => v.toLowerCase()).includes(azureService.toLowerCase()));
-      return matchesQuery && matchesAuthor && matchesService;
+  );
+
+  return server;
+};
+
+// Create Express app following the official Anthropic pattern
+const app = express();
+app.use(express.json());
+
+// Handle POST requests to /mcp (main MCP endpoint) - Official Anthropic pattern
+app.post('/mcp', async (req: Request, res: Response) => {
+  const server = getServer();
+  try {
+    const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
     });
-    return {
-      content: [{
-        type: "text",
-        text: results.length
-          ? results.map((s: GallerySample) => `* ${s.title} (${s.author || "unknown"})\n  ${s.description || ""}\n  Source: ${s.source}\n  Preview: ${s.preview}\n  Azure Services: ${s.azureServices.join(", ")}`).join("\n\n")
-          : "No matching samples found."
-      }]
-    };
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+    res.on('close', () => {
+      transport.close();
+      server.close();
+    });
+  } catch (error) {
+    console.error('Error handling MCP request:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        jsonrpc: '2.0',
+        error: {
+          code: -32603,
+          message: 'Internal server error',
+        },
+        id: null,
+      });
+    }
   }
-);
+});
 
+// Handle GET requests to /mcp (method not allowed) - Official Anthropic pattern
+app.get('/mcp', async (_req: Request, res: Response) => {
+  res.writeHead(405).end(JSON.stringify({
+    jsonrpc: "2.0",
+    error: {
+      code: -32000,
+      message: "Method not allowed."
+    },
+    id: null
+  }));
+});
 
-// --- Direct HTTP Server with StreamableHTTPServerTransport ---
-import { createServer } from 'http';
+// Handle DELETE requests to /mcp (method not allowed) - Official Anthropic pattern
+app.delete('/mcp', async (_req: Request, res: Response) => {
+  res.writeHead(405).end(JSON.stringify({
+    jsonrpc: "2.0",
+    error: {
+      code: -32000,
+      message: "Method not allowed."
+    },
+    id: null
+  }));
+});
 
+// Start the server - Official Anthropic pattern
 const PORT = 8080;
+app.listen(PORT, () => {
+  console.log(`MCP Azure Functions Sample Finder Server listening on port ${PORT}`);
+});
 
-async function startServer() {
-  console.log('[MCP] Creating StreamableHTTPServerTransport...');
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => crypto.randomUUID(),
-    enableDnsRebindingProtection: true,
-    allowedHosts: ['127.0.0.1', 'localhost', 'localhost:8080', '127.0.0.1:8080'],
-  });
-  
-  console.log('[MCP] Connecting server to transport...');
-  await server.connect(transport);
-  console.log('[MCP] Server connected successfully');
-  
-  // Create HTTP server that delegates to the transport
-  const httpServer = createServer(async (req, res) => {
-    console.log('[MCP] Incoming', req.method, req.url, 'headers:', req.headers);
-    
-    // Only handle requests to /mcp path
-    if (req.url !== '/mcp') {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Not found. Use /mcp endpoint.' }));
-      return;
-    }
-    
-    console.log('[MCP] Delegating to transport.handleRequest...');
-    try {
-      await transport.handleRequest(req, res);
-      console.log('[MCP] transport.handleRequest completed successfully');
-    } catch (error) {
-      console.error('[MCP] Error in transport.handleRequest:', error);
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          jsonrpc: '2.0',
-          error: { code: -32603, message: 'Internal server error during request handling' },
-          id: null,
-        }));
-      }
-    }
-  });
-  
-  httpServer.listen(PORT, () => {
-    console.log(`MCP server with Awesome AZD Gallery is running (streamable HTTP) on http://localhost:${PORT}/mcp ...`);
-  });
-}
-
-// Start the server
-startServer().catch(error => {
-  console.error('[MCP] Failed to start server:', error);
-  process.exit(1);
+// Handle server shutdown - Official Anthropic pattern
+process.on('SIGINT', async () => {
+  console.log('Shutting down server...');
+  process.exit(0);
 });

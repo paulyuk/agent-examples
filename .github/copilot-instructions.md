@@ -5,13 +5,13 @@
 ### MCP Server Management
 - **ONLY THE HUMAN** can start/stop the MCP server
 - **Command**: `npm run mcp-server`
-- **Port**: http://localhost:8080/mcp
-- **Architecture**: Direct HTTP server with `createServer` (NO Express middleware)
+- **Architecture**: **MUST USE OFFICIAL MCP SDK ONLY** - StreamableHTTPServerTransport for HTTP servers, never custom HTTP servers
+- **Official SDK Sample**: Use the official MCP SDK patterns for StreamableHTTPServerTransport
 
 ### CLI Client Management  
 - **Copilot should use**: `npm run dev` to start the CLI client
 - **Never use**: `node dist/src/client/cli.js` directly
-- **The CLI connects to the MCP server** at http://localhost:8080/mcp
+- **The CLI connects to the MCP server** via stdio transport
 
 ## 🎯 DYNAMIC TOOL DISCOVERY - NEVER HARDCODE TOOLS
 
@@ -27,43 +27,82 @@
 3. **Dynamic Registration**: `registerDiscoveredMCPTools()` creates generic handlers
 4. **Runtime Calls**: Generic handlers call `tools/call` with tool name and args
 
-## 🚨 DO NOT BREAK THE WORKING MCP SERVER ARCHITECTURE
+## 🚨 MANDATORY: ALWAYS USE OFFICIAL MCP SDK
 
-The current MCP server architecture is working perfectly with MCP Inspector:
+The MCP server MUST use the official MCP SDK patterns only:
 
 ```typescript
-// ✅ WORKING PATTERN - DO NOT CHANGE
-import { createServer } from 'http';
+// ✅ REQUIRED PATTERN - NEVER DEVIATE FROM THIS
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { z } from "zod";
 
-const httpServer = createServer(async (req, res) => {
-  if (req.url !== '/mcp') {
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found. Use /mcp endpoint.' }));
-    return;
-  }
-  
-  await transport.handleRequest(req, res);
+const server = new McpServer({ name: "...", version: "..." });
+
+// ✅ CRITICAL: Tool schemas MUST use Zod, NOT JSON Schema
+const TOOL_SCHEMA = {
+  param1: z.string().describe("Description").optional(),
+  param2: z.number().describe("Description").default(100),
+  param3: z.boolean().describe("Description")
+};
+
+// ✅ Register tools using server.tool() with Zod schema as 3rd parameter
+server.tool("tool-name", "description", TOOL_SCHEMA, async (params) => {
+  // implementation
 });
+
+// Start server using StreamableHTTPServerTransport
+async function main() {
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => crypto.randomUUID(),
+    enableDnsRebindingProtection: true,
+    allowedHosts: ['127.0.0.1', 'localhost', 'localhost:8080', '127.0.0.1:8080'],
+  });
+  
+  await server.connect(transport);
+  
+  // Create HTTP server that delegates to the transport
+  const httpServer = require('http').createServer(async (req, res) => {
+    if (req.url !== '/mcp') {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not found. Use /mcp endpoint.' }));
+      return;
+    }
+    await transport.handleRequest(req, res);
+  });
+  
+  httpServer.listen(8080, () => {
+    console.log(`MCP Server running on http://localhost:8080/mcp`);
+  });
+}
 ```
 
+### 🔑 CRITICAL Tool Schema Rules (LESSON LEARNED)
+- ✅ **MUST use Zod schemas** - `z.string().describe("...")` 
+- ❌ **NEVER use JSON Schema objects** - `{ type: "string", description: "..." }`
+- ✅ **Pass Zod schema directly** as 3rd parameter to `server.tool()`
+- ❌ **NEVER wrap in `{ inputSchema: ... }`** - this prevents MCP Inspector from showing input fields
+- ✅ **Use `.optional()`** for optional parameters
+- ✅ **Use `.default(value)`** for parameters with defaults
+- ✅ **Use `.describe("text")`** for parameter descriptions
+
 ### Why This Works
-- Direct Node.js HTTP server (no Express middleware)
-- Raw request/response objects to transport
-- No middleware interference with streaming protocol
-- Proper session management with mcp-session-id headers
+- Official MCP SDK transport (StreamableHTTPServerTransport)
+- Proper server.tool() registration method
+- **Zod schemas enable MCP Inspector parameter input fields**
+- Standard HTTP communication protocol
+- No custom HTTP servers or middleware outside the pattern
 
 ## 🔄 Standard Workflow
 
 1. **Human starts MCP server**: `npm run mcp-server`
 2. **Copilot tests CLI**: `npm run dev` 
-3. **MCP Inspector can connect**: http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=...
+3. **MCP Inspector can connect**: Via HTTP transport at localhost:8080/mcp
 
 ### ⚠️ Session Management Rules
-- **Only ONE client can initialize** the MCP server at a time
-- **If server says "already initialized"**: Restart server with `npm run mcp-server`  
-- **Fresh server = fresh session** for proper CLI testing
-- **Don't generate random session IDs** - server will reject them
+- **Official SDK handles all session management automatically**
+- **StreamableHTTPServerTransport manages sessions internally**
+- **Reconnections work automatically with proper transport usage**
 
 ## 🔧 Critical Implementation Patterns
 
@@ -111,52 +150,27 @@ const toolHandler = async (args: any) => {
 ## 🚫 What NOT to Do
 
 - ❌ Don't start MCP server from Copilot
-- ❌ Don't use Express middleware with StreamableHTTPServerTransport
-- ❌ Don't change the working server architecture
+- ❌ **NEVER** create custom HTTP servers for MCP outside the SDK pattern
+- ❌ **NEVER** use Express middleware with MCP
+- ❌ **NEVER** use `createServer` from Node.js http module directly for MCP (use SDK pattern)
 - ❌ Don't use `node dist/src/client/cli.js` directly
 - ❌ Don't try to run CLI in background with `isBackground: true`
-- ❌ Don't assume JSON responses - StreamableHTTPServerTransport uses SSE format
-- ❌ Don't initialize new session for every tool call - reuse existing session
 - ❌ **NEVER hardcode tool names, descriptions, or schemas anywhere**
 - ❌ **NEVER use switch statements for tool handling**
 - ❌ **NEVER skip the tools/list discovery step**
-
-## 🧪 Regression Protection Tests
-
-### Critical: Run These Tests Before Any Changes
-```bash
-# Quick check (30 seconds)
-npm run test:regression
-
-# Full integration test (2 minutes)  
-npm run test:mcp-integration
-```
-
-### What The Tests Protect Against
-- ✅ Hardcoded tool names in switch statements
-- ✅ Missing MCP protocol calls (tools/list, tools/call)
-- ✅ Incorrect Accept headers (must include text/event-stream)
-- ✅ Missing dynamic tool registration pattern
-- ✅ Missing generic tool handlers
-- ✅ TypeScript compilation errors
-
-### When Tests Fail
-- **STOP** - Do not proceed with changes
-- **FIX** - Address the failing check first
-- **VERIFY** - Run tests again until all pass
-- **ONLY THEN** - Continue with development
+- ❌ **NEVER use JSON Schema objects for tool parameters** - use Zod schemas only
+- ❌ **NEVER wrap schemas in `{ inputSchema: ... }`** - pass Zod schema directly
 
 ## ✅ What TO Do
 
 - ✅ Use `npm run dev` for CLI testing
 - ✅ Let human manage MCP server lifecycle
-- ✅ Preserve the direct HTTP server architecture
+- ✅ **ALWAYS** use StreamableHTTPServerTransport with the official SDK pattern
+- ✅ **ALWAYS** follow the official SDK sample pattern exactly
+- ✅ **ALWAYS** use server.tool() method for registering tools
+- ✅ **ALWAYS** use Zod schemas for tool parameters - enables MCP Inspector input fields
+- ✅ **ALWAYS** pass Zod schema directly as 3rd parameter to server.tool()
 - ✅ Test with MCP Inspector when needed
-- ✅ Match Inspector's initialization pattern in CLI client
-- ✅ Use Streamable HTTP MCP transport (responses are in SSE format)
-- ✅ Initialize session ONCE and reuse for all tool calls
-- ✅ Always include mcp-session-id header (required by StreamableHTTPServerTransport)
-- ✅ Parse SSE format responses correctly (event: message, data: {...})
 - ✅ **ALWAYS call tools/list to discover available tools dynamically**
 - ✅ **ALWAYS use generic tool handlers that call tools/call endpoint**
 - ✅ **ALWAYS parse tool descriptions from MCP server response**
